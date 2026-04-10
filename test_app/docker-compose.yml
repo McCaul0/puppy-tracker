@@ -1,0 +1,13 @@
+services:
+  puppy-coordinator-test:
+    build: .
+    container_name: puppy-coordinator-test
+    ports:
+      - "8001:8000"
+    environment:
+      PUPPY_TRACKER_PORT: "8000"
+      PUPPY_TRACKER_DB: "/data/puppy_tracker_test.db"
+      PUPPY_TZ_OFFSET_MINUTES: "-240"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
