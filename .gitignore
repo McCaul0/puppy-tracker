@@ -3,6 +3,9 @@ __pycache__/
 
 .venv/
 venv/
+.pytest_tmp/
+.pytest_cache/
+pytest-cache-files-*/
 
 *.db
 data/

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from calendar import monthrange
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 APP_TITLE = "Puppy Coordinator"
-APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.2 test")
+APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.2")
 DB_PATH = Path(os.environ.get("PUPPY_TRACKER_DB", "puppy_tracker.db"))
 APP_PORT = int(os.environ.get("PUPPY_TRACKER_PORT", "8000"))
 DEFAULT_TZ_OFFSET_MINUTES = int(os.environ.get("PUPPY_TZ_OFFSET_MINUTES", "-240"))
@@ -22,6 +23,138 @@ DEFAULT_TZ_OFFSET_MINUTES = int(os.environ.get("PUPPY_TZ_OFFSET_MINUTES", "-240"
 DEFAULT_ACTIVITIES = ["pee", "poop", "food", "water", "sleep", "wake", "play"]
 DEFAULT_HOUSEHOLD_MEMBERS = ["McCaul", "Jess"]
 REST_ACTIVITIES = {"sleep"}
+SCHEDULE_PROFILE_KEY = "schedule_profile"
+ADVISORY_OVERRIDES_KEY = "advisory_overrides"
+DEFAULT_DEFER_MINUTES = 20
+WEEKDAY_IDS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+AGE_BAND_DEFAULTS = [
+    {
+        "id": "8_to_10_weeks",
+        "label": "8-10 weeks",
+        "min_weeks": 0.0,
+        "max_weeks": 10.0,
+        "pee_due": 45,
+        "pee_overdue": 60,
+        "poop_due": 180,
+        "poop_overdue": 240,
+        "food_due": 240,
+        "food_overdue": 300,
+        "water_due": 90,
+        "water_overdue": 120,
+        "awake_due": 45,
+        "awake_overdue": 60,
+        "day_sleep_minutes": 120,
+        "night_sleep_minutes": 180,
+        "overnight_potty_limit_minutes": 180,
+        "post_food_potty_due": 10,
+        "post_food_potty_overdue": 20,
+        "post_drink_potty_due": 10,
+        "post_drink_potty_overdue": 20,
+        "post_play_potty_due": 5,
+        "post_play_potty_overdue": 15,
+    },
+    {
+        "id": "10_to_12_weeks",
+        "label": "10-12 weeks",
+        "min_weeks": 10.0,
+        "max_weeks": 12.0,
+        "pee_due": 60,
+        "pee_overdue": 90,
+        "poop_due": 240,
+        "poop_overdue": 300,
+        "food_due": 300,
+        "food_overdue": 360,
+        "water_due": 120,
+        "water_overdue": 180,
+        "awake_due": 60,
+        "awake_overdue": 75,
+        "day_sleep_minutes": 120,
+        "night_sleep_minutes": 210,
+        "overnight_potty_limit_minutes": 210,
+        "post_food_potty_due": 10,
+        "post_food_potty_overdue": 25,
+        "post_drink_potty_due": 10,
+        "post_drink_potty_overdue": 20,
+        "post_play_potty_due": 5,
+        "post_play_potty_overdue": 15,
+    },
+    {
+        "id": "12_to_16_weeks",
+        "label": "12-16 weeks",
+        "min_weeks": 12.0,
+        "max_weeks": 16.0,
+        "pee_due": 120,
+        "pee_overdue": 180,
+        "poop_due": 300,
+        "poop_overdue": 420,
+        "food_due": 360,
+        "food_overdue": 480,
+        "water_due": 180,
+        "water_overdue": 240,
+        "awake_due": 90,
+        "awake_overdue": 120,
+        "day_sleep_minutes": 120,
+        "night_sleep_minutes": 240,
+        "overnight_potty_limit_minutes": 240,
+        "post_food_potty_due": 15,
+        "post_food_potty_overdue": 30,
+        "post_drink_potty_due": 10,
+        "post_drink_potty_overdue": 20,
+        "post_play_potty_due": 5,
+        "post_play_potty_overdue": 15,
+    },
+    {
+        "id": "4_to_6_months",
+        "label": "4-6 months",
+        "min_weeks": 16.0,
+        "max_weeks": 24.0,
+        "pee_due": 180,
+        "pee_overdue": 240,
+        "poop_due": 420,
+        "poop_overdue": 540,
+        "food_due": 480,
+        "food_overdue": 720,
+        "water_due": 240,
+        "water_overdue": 300,
+        "awake_due": 180,
+        "awake_overdue": 240,
+        "day_sleep_minutes": 120,
+        "night_sleep_minutes": 300,
+        "overnight_potty_limit_minutes": 300,
+        "post_food_potty_due": 15,
+        "post_food_potty_overdue": 30,
+        "post_drink_potty_due": 10,
+        "post_drink_potty_overdue": 20,
+        "post_play_potty_due": 5,
+        "post_play_potty_overdue": 15,
+    },
+    {
+        "id": "6_plus_months",
+        "label": "6+ months",
+        "min_weeks": 24.0,
+        "max_weeks": None,
+        "pee_due": 240,
+        "pee_overdue": 360,
+        "poop_due": 540,
+        "poop_overdue": 720,
+        "food_due": 600,
+        "food_overdue": 720,
+        "water_due": 300,
+        "water_overdue": 360,
+        "awake_due": 240,
+        "awake_overdue": 300,
+        "day_sleep_minutes": 120,
+        "night_sleep_minutes": 360,
+        "overnight_potty_limit_minutes": 360,
+        "post_food_potty_due": 15,
+        "post_food_potty_overdue": 35,
+        "post_drink_potty_due": 10,
+        "post_drink_potty_overdue": 20,
+        "post_play_potty_due": 5,
+        "post_play_potty_overdue": 15,
+    },
+]
 
 app = FastAPI(title=APP_TITLE)
 
@@ -67,7 +200,7 @@ def normalize_activities(values: List[str]) -> List[str]:
     cleaned: List[str] = []
     for value in values:
         item = str(value).strip().lower()
-        if not item or item == "accident" or item in cleaned:
+        if not item or item in {"accident", "nap"} or item in cleaned:
             continue
         cleaned.append(item)
     for activity in DEFAULT_ACTIVITIES:
@@ -88,6 +221,42 @@ def normalize_household_members(values: List[str]) -> List[str]:
 
 def normalize_is_accident(activity: str, is_accident: bool) -> bool:
     return activity in {"pee", "poop"} and bool(is_accident)
+
+
+def json_clone(value: Any) -> Any:
+    return json.loads(json.dumps(value))
+
+
+def load_json(raw_value: Optional[str], default: Any) -> Any:
+    if not raw_value:
+        return json_clone(default)
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError:
+        return json_clone(default)
+
+
+def add_calendar_months(value: date, months: int) -> date:
+    month_index = (value.month - 1) + months
+    year = value.year + (month_index // 12)
+    month = (month_index % 12) + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def has_reached_calendar_months(birth: Optional[date], current: date, months: int) -> bool:
+    if not birth:
+        return False
+    return current >= add_calendar_months(birth, months)
+
+
+def is_overnight(dt: datetime, offset_minutes: int) -> bool:
+    local = dt.astimezone(timezone(timedelta(minutes=offset_minutes)))
+    return local.hour >= 21 or local.hour < 6
+
+
+def advisory_key(action: str, suffix: str = "") -> str:
+    return f"{action}:{suffix}" if suffix else action
 
 
 def init_db() -> None:
@@ -125,6 +294,8 @@ def init_db() -> None:
             "activities": json.dumps(DEFAULT_ACTIVITIES),
             "household_members": json.dumps(DEFAULT_HOUSEHOLD_MEMBERS),
             "puppy_birth_date": "",
+            SCHEDULE_PROFILE_KEY: json.dumps({"source": "default", "routine_blocks": [], "trigger_rules": [], "care_limits": []}),
+            ADVISORY_OVERRIDES_KEY: json.dumps([]),
         }
         for key, value in defaults.items():
             if key not in existing:
@@ -156,6 +327,47 @@ class SettingsIn(BaseModel):
     activities: List[str] = Field(..., min_items=3, max_items=20)
     household_members: List[str] = Field(default_factory=lambda: DEFAULT_HOUSEHOLD_MEMBERS.copy(), min_items=1, max_items=10)
     puppy_birth_date: Optional[str] = Field(default="")
+
+
+class RoutineBlockIn(BaseModel):
+    id: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    kind: str = Field(..., min_length=1, max_length=40)
+    label: str = Field(..., min_length=1, max_length=80)
+    start_local_time: Optional[str] = Field(default="")
+    duration_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    days_of_week: List[str] = Field(default_factory=list)
+    enabled: bool = True
+    source: str = Field(default="custom", min_length=1, max_length=20)
+
+
+class TriggerRuleIn(BaseModel):
+    rule_key: str = Field(..., min_length=1, max_length=80)
+    enabled: bool = True
+    due_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    overdue_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
+    notes: str = Field(default="", max_length=200)
+    source: str = Field(default="custom", min_length=1, max_length=20)
+
+
+class CareLimitIn(BaseModel):
+    need: str = Field(..., min_length=1, max_length=40)
+    context: str = Field(..., min_length=1, max_length=40)
+    limit_minutes: int = Field(..., ge=1, le=1440)
+    source: str = Field(default="custom", min_length=1, max_length=20)
+    emphasis: str = Field(default="normal", min_length=1, max_length=20)
+
+
+class ScheduleProfileIn(BaseModel):
+    source: str = Field(default="custom", min_length=1, max_length=20)
+    routine_blocks: List[RoutineBlockIn] = Field(default_factory=list)
+    trigger_rules: List[TriggerRuleIn] = Field(default_factory=list)
+    care_limits: List[CareLimitIn] = Field(default_factory=list)
+
+
+class AdvisoryActionIn(BaseModel):
+    advisory_key: str = Field(..., min_length=1, max_length=120)
+    action: str = Field(..., min_length=1, max_length=20)
+    defer_minutes: Optional[int] = Field(default=None, ge=1, le=720)
 
 
 class ConnectionManager:
@@ -191,6 +403,8 @@ def get_settings() -> Dict[str, Any]:
     household_members = normalize_household_members(
         json.loads(raw.get("household_members", json.dumps(DEFAULT_HOUSEHOLD_MEMBERS)))
     )
+    schedule_profile = load_json(raw.get(SCHEDULE_PROFILE_KEY), {"source": "default", "routine_blocks": [], "trigger_rules": [], "care_limits": []})
+    advisory_overrides = load_json(raw.get(ADVISORY_OVERRIDES_KEY), [])
     return {
         "puppy_name": raw.get("puppy_name", "Puppy"),
         "household_name": raw.get("household_name", "Home"),
@@ -198,7 +412,373 @@ def get_settings() -> Dict[str, Any]:
         "activities": activities,
         "household_members": household_members,
         "puppy_birth_date": raw.get("puppy_birth_date", ""),
+        "schedule_profile": schedule_profile,
+        "advisory_overrides": advisory_overrides,
     }
+
+
+def save_json_setting(key: str, value: Any) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, json.dumps(value)),
+        )
+
+
+def resolve_age_band(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    birth = parse_date(settings.get("puppy_birth_date"))
+    age_weeks = get_age_weeks(settings, now)
+    if age_weeks is None:
+        age_weeks = 12.0
+    if birth:
+        current_date = now.date()
+        if age_weeks < 10.0:
+            resolved = json_clone(AGE_BAND_DEFAULTS[0])
+        elif age_weeks < 12.0:
+            resolved = json_clone(AGE_BAND_DEFAULTS[1])
+        elif age_weeks < 16.0 or not has_reached_calendar_months(birth, current_date, 4):
+            resolved = json_clone(AGE_BAND_DEFAULTS[2])
+        elif not has_reached_calendar_months(birth, current_date, 6):
+            resolved = json_clone(AGE_BAND_DEFAULTS[3])
+        else:
+            resolved = json_clone(AGE_BAND_DEFAULTS[4])
+        resolved["age_weeks"] = round(age_weeks, 1)
+        return resolved
+    for band in AGE_BAND_DEFAULTS:
+        upper = band["max_weeks"]
+        if upper is None or age_weeks < upper:
+            resolved = json_clone(band)
+            resolved["age_weeks"] = round(age_weeks, 1)
+            return resolved
+    resolved = json_clone(AGE_BAND_DEFAULTS[-1])
+    resolved["age_weeks"] = round(age_weeks, 1)
+    return resolved
+
+
+def sort_routine_blocks(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(
+        blocks,
+        key=lambda item: (
+            str(item.get("start_local_time") or "99:99"),
+            str(item.get("kind") or ""),
+            str(item.get("label") or ""),
+            str(item.get("id") or ""),
+        ),
+    )
+
+
+def normalize_schedule_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    routine_blocks = []
+    for index, block in enumerate(profile.get("routine_blocks") or []):
+        routine_blocks.append(
+            {
+                "id": str(block.get("id") or f"custom-block-{index + 1}"),
+                "kind": str(block.get("kind") or "sleep"),
+                "label": str(block.get("label") or "Routine block"),
+                "start_local_time": str(block.get("start_local_time") or ""),
+                "duration_minutes": int(block["duration_minutes"]) if block.get("duration_minutes") is not None else None,
+                "days_of_week": [day for day in (block.get("days_of_week") or WEEKDAY_IDS) if day in WEEKDAY_IDS] or WEEKDAY_IDS.copy(),
+                "enabled": bool(block.get("enabled", True)),
+                "source": str(block.get("source") or "custom"),
+            }
+        )
+    trigger_rules = []
+    for rule in profile.get("trigger_rules") or []:
+        trigger_rules.append(
+            {
+                "rule_key": str(rule.get("rule_key") or ""),
+                "enabled": bool(rule.get("enabled", True)),
+                "due_minutes": int(rule["due_minutes"]) if rule.get("due_minutes") is not None else None,
+                "overdue_minutes": int(rule["overdue_minutes"]) if rule.get("overdue_minutes") is not None else None,
+                "notes": str(rule.get("notes") or ""),
+                "source": str(rule.get("source") or "custom"),
+            }
+        )
+    care_limits = []
+    for limit in profile.get("care_limits") or []:
+        care_limits.append(
+            {
+                "need": str(limit.get("need") or ""),
+                "context": str(limit.get("context") or ""),
+                "limit_minutes": int(limit["limit_minutes"]) if limit.get("limit_minutes") is not None else 0,
+                "source": str(limit.get("source") or "custom"),
+                "emphasis": str(limit.get("emphasis") or "normal"),
+            }
+        )
+    return {
+        "source": str(profile.get("source") or "custom"),
+        "routine_blocks": sort_routine_blocks(routine_blocks),
+        "trigger_rules": trigger_rules,
+        "care_limits": care_limits,
+    }
+
+
+def routine_summary_cards(schedule: Dict[str, Any]) -> List[Dict[str, str]]:
+    return [
+        {
+            "title": "Active age band",
+            "primary": f"{schedule['age_label']} ({schedule['age_weeks']} weeks)",
+            "secondary": f"Using {schedule['context_label'].lower()} guidance",
+        },
+        {
+            "title": "Awake window",
+            "primary": f"{human_minutes_short(schedule['awake_due'])} due / {human_minutes_short(schedule['awake_overdue'])} overdue",
+            "secondary": f"Typical {human_minutes_short(schedule['day_sleep_minutes'])} daytime naps",
+        },
+        {
+            "title": "Potty timing",
+            "primary": f"{human_minutes_short(schedule['pee_due'])} due / {human_minutes_short(schedule['pee_overdue'])} overdue",
+            "secondary": (
+                f"Post-food potty {human_minutes_short(schedule['post_food_potty_due'])}-"
+                f"{human_minutes_short(schedule['post_food_potty_overdue'])}"
+            ),
+        },
+        {
+            "title": "Overnight limit",
+            "primary": f"Potty check by {human_minutes_short(schedule['overnight_potty_limit_minutes'])} overnight",
+            "secondary": f"Default overnight block {human_minutes_short(schedule['night_sleep_minutes'])}",
+        },
+        {
+            "title": "Food and water",
+            "primary": (
+                f"Food {human_minutes_short(schedule['food_due'])} / "
+                f"Water {human_minutes_short(schedule['water_due'])}"
+            ),
+            "secondary": f"Water overdue at {human_minutes_short(schedule['water_overdue'])}",
+        },
+    ]
+
+
+def default_routine_blocks(schedule: Dict[str, Any]) -> List[Dict[str, Any]]:
+    lunch_enabled = schedule["age_weeks"] < 24
+    blocks = [
+        {
+            "id": "default-breakfast",
+            "kind": "feeding",
+            "label": "Breakfast",
+            "start_local_time": "07:00",
+            "duration_minutes": 15,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-morning-nap",
+            "kind": "sleep",
+            "label": "Morning nap",
+            "start_local_time": "09:00",
+            "duration_minutes": schedule["day_sleep_minutes"],
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-training",
+            "kind": "training",
+            "label": "Training block",
+            "start_local_time": "11:30",
+            "duration_minutes": 20,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-lunch",
+            "kind": "feeding",
+            "label": "Midday meal",
+            "start_local_time": "12:30",
+            "duration_minutes": 15,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": lunch_enabled,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-midday-nap",
+            "kind": "sleep",
+            "label": "Midday nap",
+            "start_local_time": "13:30",
+            "duration_minutes": schedule["day_sleep_minutes"],
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-play",
+            "kind": "play",
+            "label": "Active play",
+            "start_local_time": "16:00",
+            "duration_minutes": 25,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-dinner",
+            "kind": "feeding",
+            "label": "Dinner",
+            "start_local_time": "18:00",
+            "duration_minutes": 15,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-evening-water",
+            "kind": "water",
+            "label": "Evening water check",
+            "start_local_time": "19:30",
+            "duration_minutes": 10,
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+        {
+            "id": "default-overnight-sleep",
+            "kind": "sleep",
+            "label": "Overnight sleep",
+            "start_local_time": "22:00",
+            "duration_minutes": schedule["night_sleep_minutes"],
+            "days_of_week": WEEKDAY_IDS.copy(),
+            "enabled": True,
+            "source": "default-age-band",
+        },
+    ]
+    return sort_routine_blocks(blocks)
+
+
+def default_trigger_rules(schedule: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "rule_key": "post_food_potty",
+            "enabled": True,
+            "due_minutes": schedule["post_food_potty_due"],
+            "overdue_minutes": schedule["post_food_potty_overdue"],
+            "notes": "Prompt a potty break after food.",
+            "source": "default-age-band",
+        },
+        {
+            "rule_key": "post_drink_potty",
+            "enabled": True,
+            "due_minutes": schedule["post_drink_potty_due"],
+            "overdue_minutes": schedule["post_drink_potty_overdue"],
+            "notes": "Prompt a potty break after drinking.",
+            "source": "default-age-band",
+        },
+        {
+            "rule_key": "post_play_potty",
+            "enabled": True,
+            "due_minutes": schedule["post_play_potty_due"],
+            "overdue_minutes": schedule["post_play_potty_overdue"],
+            "notes": "Prompt a potty break after active play.",
+            "source": "default-age-band",
+        },
+    ]
+
+
+def default_care_limits(schedule: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "need": "potty",
+            "context": "overnight",
+            "limit_minutes": schedule["overnight_potty_limit_minutes"],
+            "source": "default-age-band",
+            "emphasis": "high",
+        }
+    ]
+
+
+def build_schedule_profile_payload(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    active_band = resolve_age_band(settings, now)
+    schedule = get_schedule(settings, now)
+    profile = normalize_schedule_profile(settings.get("schedule_profile") or {})
+    return {
+        "profile_version": 1,
+        "source": schedule["profile_source"],
+        "active_age_band": {
+            "id": schedule["age_band_id"],
+            "label": schedule["age_label"],
+            "min_weeks": active_band["min_weeks"],
+            "max_weeks": active_band["max_weeks"],
+        },
+        "routine_blocks": profile["routine_blocks"] or default_routine_blocks(schedule),
+        "care_limits": profile["care_limits"] or default_care_limits(schedule),
+        "trigger_rules": profile["trigger_rules"] or default_trigger_rules(schedule),
+    }
+
+
+def validate_schedule_profile(profile: Dict[str, Any]) -> Optional[str]:
+    for rule in profile.get("trigger_rules", []):
+        due = rule.get("due_minutes")
+        overdue = rule.get("overdue_minutes")
+        if due is not None and overdue is not None and due >= overdue:
+            return f"Rule {rule.get('rule_key') or 'unknown'} must have due time before overdue time."
+    for limit in profile.get("care_limits", []):
+        if limit.get("need") == "potty" and limit.get("context") == "overnight" and int(limit.get("limit_minutes") or 0) < 60:
+            return "Overnight potty limit must be at least 60 minutes."
+    return None
+
+
+def merge_schedule_profile(base_schedule: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+    schedule = json_clone(base_schedule)
+    normalized = normalize_schedule_profile(profile)
+    trigger_map = {item.get("rule_key"): item for item in normalized["trigger_rules"] if item.get("rule_key")}
+    care_limit_map = {
+        (item.get("need"), item.get("context")): item
+        for item in normalized["care_limits"]
+        if item.get("need") and item.get("context")
+    }
+
+    for rule_key, due_key, overdue_key in [
+        ("post_food_potty", "post_food_potty_due", "post_food_potty_overdue"),
+        ("post_drink_potty", "post_drink_potty_due", "post_drink_potty_overdue"),
+        ("post_play_potty", "post_play_potty_due", "post_play_potty_overdue"),
+    ]:
+        override = trigger_map.get(rule_key)
+        if not override:
+            continue
+        if override.get("due_minutes") is not None:
+            schedule[due_key] = int(override["due_minutes"])
+        if override.get("overdue_minutes") is not None:
+            schedule[overdue_key] = int(override["overdue_minutes"])
+
+    overnight_limit = care_limit_map.get(("potty", "overnight"))
+    if overnight_limit:
+        schedule["overnight_potty_limit_minutes"] = int(overnight_limit["limit_minutes"])
+
+    schedule["profile_source"] = normalized["source"] if normalized["routine_blocks"] or normalized["trigger_rules"] or normalized["care_limits"] else "default"
+    schedule["routine_blocks"] = normalized["routine_blocks"]
+    schedule["trigger_rules"] = normalized["trigger_rules"]
+    schedule["care_limits"] = normalized["care_limits"]
+    schedule["routine_summary"] = routine_summary_cards(schedule)
+    return schedule
+
+
+def list_recent_activity(events_desc: List[Dict[str, Any]], activity: str, minutes_window: int, now: datetime) -> Optional[Dict[str, Any]]:
+    for event in events_desc:
+        if event["activity"] != activity:
+            continue
+        elapsed = minutes_since(event.get("event_time_utc"), now)
+        if elapsed is not None and elapsed <= minutes_window:
+            return event
+    return None
+
+
+def find_latest_activity_after(events_desc: List[Dict[str, Any]], activities: List[str], after_iso: Optional[str]) -> Optional[Dict[str, Any]]:
+    after_dt = parse_iso(after_iso)
+    if not after_dt:
+        return None
+    activity_set = set(activities)
+    for event in events_desc:
+        if event["activity"] not in activity_set:
+            continue
+        event_dt = parse_iso(event.get("event_time_utc"))
+        if event_dt and event_dt > after_dt:
+            return event
+    return None
+
+
+def build_triggered_by(rule_type: str, details: List[str]) -> List[str]:
+    return [f"{rule_type}: {detail}" for detail in details if detail]
 
 
 def list_events(limit: int = 200) -> List[Dict[str, Any]]:
@@ -223,6 +803,21 @@ def minutes_since(iso: Optional[str], now: datetime) -> Optional[int]:
     return max(0, int(round((now - dt).total_seconds() / 60)))
 
 
+def human_minutes_short(minutes: Optional[int]) -> str:
+    if minutes is None:
+        return "never"
+    if minutes < 1:
+        return "now"
+    total_minutes = int(minutes)
+    hours, remainder = divmod(total_minutes, 60)
+    if hours == 0:
+        return f"{total_minutes}m"
+    if hours < 24:
+        return f"{hours}h {remainder}m" if remainder else f"{hours}h"
+    days, remaining_hours = divmod(hours, 24)
+    return f"{days}d {remaining_hours}h" if remaining_hours else f"{days}d"
+
+
 def get_age_weeks(settings: Dict[str, Any], now: datetime) -> Optional[float]:
     birth = parse_date(settings.get("puppy_birth_date"))
     if not birth:
@@ -234,69 +829,41 @@ def get_age_weeks(settings: Dict[str, Any], now: datetime) -> Optional[float]:
 
 
 def get_schedule(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
-    age_weeks = get_age_weeks(settings, now)
-    if age_weeks is None:
-        age_weeks = 12.0
-
-    if age_weeks < 10:
-        label = "8-10 weeks"
-        schedule = {
-            "pee_due": 45, "pee_overdue": 60,
-            "poop_due": 180, "poop_overdue": 240,
-            "food_due": 240, "food_overdue": 300,
-            "water_due": 90, "water_overdue": 120,
-            "awake_due": 45, "awake_overdue": 60,
-            "sleep_default": 120,
-            "post_food_potty_due": 10, "post_food_potty_overdue": 20,
-        }
-    elif age_weeks < 12:
-        label = "10-12 weeks"
-        schedule = {
-            "pee_due": 60, "pee_overdue": 90,
-            "poop_due": 240, "poop_overdue": 300,
-            "food_due": 300, "food_overdue": 360,
-            "water_due": 120, "water_overdue": 180,
-            "awake_due": 60, "awake_overdue": 75,
-            "sleep_default": 120,
-            "post_food_potty_due": 10, "post_food_potty_overdue": 25,
-        }
-    elif age_weeks < 16:
-        label = "12-16 weeks"
-        schedule = {
-            "pee_due": 120, "pee_overdue": 180,
-            "poop_due": 300, "poop_overdue": 420,
-            "food_due": 360, "food_overdue": 480,
-            "water_due": 180, "water_overdue": 240,
-            "awake_due": 90, "awake_overdue": 120,
-            "sleep_default": 120,
-            "post_food_potty_due": 15, "post_food_potty_overdue": 30,
-        }
-    elif age_weeks < 24:
-        label = "4-6 months"
-        schedule = {
-            "pee_due": 180, "pee_overdue": 240,
-            "poop_due": 420, "poop_overdue": 540,
-            "food_due": 480, "food_overdue": 720,
-            "water_due": 240, "water_overdue": 300,
-            "awake_due": 180, "awake_overdue": 240,
-            "sleep_default": 120,
-            "post_food_potty_due": 15, "post_food_potty_overdue": 30,
-        }
-    else:
-        label = "6+ months"
-        schedule = {
-            "pee_due": 240, "pee_overdue": 360,
-            "poop_due": 540, "poop_overdue": 720,
-            "food_due": 600, "food_overdue": 720,
-            "water_due": 300, "water_overdue": 360,
-            "awake_due": 240, "awake_overdue": 300,
-            "sleep_default": 120,
-            "post_food_potty_due": 15, "post_food_potty_overdue": 35,
-        }
-
-    schedule["age_weeks"] = round(age_weeks, 1)
-    schedule["age_label"] = label
-    return schedule
+    band = resolve_age_band(settings, now)
+    overnight = is_overnight(now, settings["timezone_offset_minutes"])
+    schedule = {
+        "age_band_id": band["id"],
+        "age_label": band["label"],
+        "age_weeks": band["age_weeks"],
+        "pee_due": band["pee_due"],
+        "pee_overdue": band["pee_overdue"],
+        "poop_due": band["poop_due"],
+        "poop_overdue": band["poop_overdue"],
+        "food_due": band["food_due"],
+        "food_overdue": band["food_overdue"],
+        "water_due": band["water_due"],
+        "water_overdue": band["water_overdue"],
+        "awake_due": band["awake_due"],
+        "awake_overdue": band["awake_overdue"],
+        "post_food_potty_due": band["post_food_potty_due"],
+        "post_food_potty_overdue": band["post_food_potty_overdue"],
+        "post_drink_potty_due": band["post_drink_potty_due"],
+        "post_drink_potty_overdue": band["post_drink_potty_overdue"],
+        "post_play_potty_due": band["post_play_potty_due"],
+        "post_play_potty_overdue": band["post_play_potty_overdue"],
+        "day_sleep_minutes": band["day_sleep_minutes"],
+        "night_sleep_minutes": band["night_sleep_minutes"],
+        "overnight_potty_limit_minutes": band["overnight_potty_limit_minutes"],
+        "context_label": "Overnight" if overnight else "Daytime",
+        "is_overnight": overnight,
+        "default_sleep_minutes": band["night_sleep_minutes"] if overnight else band["day_sleep_minutes"],
+        "profile_source": "default",
+        "routine_blocks": [],
+        "trigger_rules": [],
+        "care_limits": [],
+        "routine_summary": [],
+    }
+    return merge_schedule_profile(schedule, settings.get("schedule_profile") or {})
 
 
 def find_last(events_desc: List[Dict[str, Any]], activity: str) -> Optional[Dict[str, Any]]:
@@ -306,7 +873,42 @@ def find_last(events_desc: List[Dict[str, Any]], activity: str) -> Optional[Dict
     return None
 
 
-def latest_sleep_block(events_desc: List[Dict[str, Any]], schedule: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def build_sleep_projection(settings: Dict[str, Any], start_dt: datetime, planned_minutes: int) -> Dict[str, Any]:
+    start_schedule = get_schedule(settings, start_dt)
+    recommended_minutes = planned_minutes
+    warning = None
+    if start_schedule["is_overnight"] and planned_minutes > start_schedule["overnight_potty_limit_minutes"]:
+        recommended_minutes = start_schedule["overnight_potty_limit_minutes"]
+        warning = (
+            f"This sleep block reaches the overnight potty limit around "
+            f"{local_time_label((start_dt + timedelta(minutes=recommended_minutes)).isoformat(), settings['timezone_offset_minutes'])}."
+        )
+    elif start_schedule["is_overnight"]:
+        warning = None
+
+    recommended_check = start_dt + timedelta(minutes=recommended_minutes)
+    if warning:
+        reason = warning
+    elif start_schedule["is_overnight"]:
+        reason = (
+            f"Potty check by {local_time_label(recommended_check.isoformat(), settings['timezone_offset_minutes'])} "
+            f"based on the current overnight limit."
+        )
+    else:
+        reason = (
+            f"Likely okay until {local_time_label(recommended_check.isoformat(), settings['timezone_offset_minutes'])} "
+            f"based on the current daytime nap rhythm."
+        )
+    return {
+        "context_label": start_schedule["context_label"],
+        "planned_minutes": planned_minutes,
+        "recommended_check_time_utc": recommended_check.isoformat(),
+        "recommended_check_reason": reason,
+        "care_limit_warning": warning,
+    }
+
+
+def latest_sleep_block(events_desc: List[Dict[str, Any]], settings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     events_asc = list(reversed(events_desc))
     latest_block = None
     current_now = utc_now()
@@ -316,7 +918,9 @@ def latest_sleep_block(events_desc: List[Dict[str, Any]], schedule: Dict[str, An
         start_dt = parse_iso(event["event_time_utc"])
         if not start_dt:
             continue
-        planned = event.get("duration_minutes") or schedule["sleep_default"]
+        start_schedule = get_schedule(settings, start_dt)
+        planned = event.get("duration_minutes") or start_schedule["default_sleep_minutes"]
+        projection = build_sleep_projection(settings, start_dt, planned)
         projected_end = start_dt + timedelta(minutes=planned)
         actual_end = projected_end
         end_source = "projected"
@@ -340,12 +944,16 @@ def latest_sleep_block(events_desc: List[Dict[str, Any]], schedule: Dict[str, An
             "actual_duration_minutes": max(0, int(round((actual_end - start_dt).total_seconds() / 60))),
             "is_sleeping_now": current_now < actual_end,
             "end_source": end_source,
+            "recommended_check_time_utc": projection["recommended_check_time_utc"],
+            "recommended_check_reason": projection["recommended_check_reason"],
+            "care_limit_warning": projection["care_limit_warning"],
+            "start_context_label": projection["context_label"],
         }
     return latest_block
 
 
-def current_awake_minutes(events_desc: List[Dict[str, Any]], schedule: Dict[str, Any], now: datetime) -> Optional[int]:
-    block = latest_sleep_block(events_desc, schedule)
+def current_awake_minutes(events_desc: List[Dict[str, Any]], settings: Dict[str, Any], now: datetime) -> Optional[int]:
+    block = latest_sleep_block(events_desc, settings)
     if block:
         end_dt = parse_iso(block["end_time_utc"])
         if end_dt:
@@ -383,45 +991,336 @@ def local_time_label(iso: Optional[str], offset_minutes: int) -> str:
     return local.strftime("%-I:%M %p")
 
 
-def needs_now(events_desc: List[Dict[str, Any]], settings: Dict[str, Any], schedule: Dict[str, Any], live: Dict[str, Any]) -> Dict[str, str]:
-    if live["sleep_block"] and live["sleep_block"]["is_sleeping_now"]:
-        wake_by = live["sleep_block"]["projected_end_time_utc"]
-        return {
-            "title": "Sleeping now",
-            "reason": f"Wake by {local_time_label(wake_by, settings['timezone_offset_minutes'])}",
-        }
+def build_advisory(
+    key: str,
+    title: str,
+    reason: str,
+    rule_type: str,
+    priority: int,
+    triggered_by: List[str],
+    status: str = "active",
+) -> Dict[str, Any]:
+    return {
+        "advisory_key": key,
+        "title": title,
+        "reason": reason,
+        "rule_type": rule_type,
+        "status": status,
+        "priority": priority,
+        "triggered_by": triggered_by,
+        "due_at_utc": None,
+        "escalates_at_utc": None,
+    }
+
+
+def active_override_map(settings: Dict[str, Any], now: datetime) -> Dict[str, Dict[str, Any]]:
+    overrides: Dict[str, Dict[str, Any]] = {}
+    for item in settings.get("advisory_overrides", []):
+        key = item.get("advisory_key")
+        if not key:
+            continue
+        expires = parse_iso(item.get("expires_at_utc"))
+        if expires and expires <= now:
+            continue
+        overrides[key] = item
+    return overrides
+
+
+def build_advisory_candidates(events_desc: List[Dict[str, Any]], settings: Dict[str, Any], schedule: Dict[str, Any], live: Dict[str, Any], now: datetime) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    sleep_block = live["sleep_block"]
+    if sleep_block and sleep_block["is_sleeping_now"]:
+        reason = sleep_block["care_limit_warning"] or sleep_block["recommended_check_reason"]
+        rule_type = "care-limit" if sleep_block["care_limit_warning"] else "schedule"
+        candidates.append(
+            build_advisory(
+                advisory_key("sleeping", schedule["context_label"].lower()),
+                "Sleeping now",
+                reason,
+                rule_type,
+                10,
+                build_triggered_by("schedule", [f"{sleep_block['start_context_label']} sleep block", sleep_block["recommended_check_reason"]]),
+            )
+        )
+        return candidates
+
+    wake_last = find_last(events_desc, "wake")
+    potty_after_wake = find_latest_activity_after(events_desc, ["pee", "poop"], (wake_last or {}).get("event_time_utc"))
+    if wake_last and live["since_wake_minutes"] is not None and live["since_wake_minutes"] <= 15 and not potty_after_wake:
+        candidates.append(
+            build_advisory(
+                advisory_key("post-wake-potty"),
+                "Potty likely due",
+                f"Woke up {human_minutes_short(live['since_wake_minutes'])} ago.",
+                "behavior-trigger",
+                20,
+                build_triggered_by("behavior", ["Recent wake event", "Post-wake potty trigger"]),
+            )
+        )
 
     food_last = find_last(events_desc, "food")
-    food_minutes = live["since_food_minutes"]
-    if food_last and food_minutes is not None:
-        if schedule["post_food_potty_due"] <= food_minutes < schedule["post_food_potty_overdue"]:
-            return {"title": "Likely needs potty soon", "reason": f"Ate {food_minutes}m ago"}
-        if food_minutes >= schedule["post_food_potty_overdue"] and live["since_pee_minutes"] is not None and live["since_pee_minutes"] > schedule["pee_due"] // 2:
-            return {"title": "Potty likely overdue", "reason": f"Ate {food_minutes}m ago and last pee was {live['since_pee_minutes']}m ago"}
+    potty_after_food = find_latest_activity_after(events_desc, ["pee", "poop"], (food_last or {}).get("event_time_utc"))
+    if food_last and live["since_food_minutes"] is not None and schedule["post_food_potty_due"] <= live["since_food_minutes"] and not potty_after_food:
+        title = "Potty likely overdue" if live["since_food_minutes"] >= schedule["post_food_potty_overdue"] else "Likely needs potty soon"
+        priority = 18 if live["since_food_minutes"] >= schedule["post_food_potty_overdue"] else 22
+        candidates.append(
+            build_advisory(
+                advisory_key("post-food-potty"),
+                title,
+                f"Ate {human_minutes_short(live['since_food_minutes'])} ago.",
+                "behavior-trigger",
+                priority,
+                build_triggered_by(
+                    "behavior",
+                    [
+                        "Recent meal",
+                        f"Post-food potty {human_minutes_short(schedule['post_food_potty_due'])}-{human_minutes_short(schedule['post_food_potty_overdue'])}",
+                    ],
+                ),
+            )
+        )
+
+    recent_water = list_recent_activity(events_desc, "water", schedule["post_drink_potty_overdue"], now)
+    potty_after_water = find_latest_activity_after(events_desc, ["pee", "poop"], (recent_water or {}).get("event_time_utc"))
+    if live["since_water_minutes"] is not None and schedule["post_drink_potty_due"] <= live["since_water_minutes"] <= schedule["post_drink_potty_overdue"]:
+        if recent_water and not potty_after_water:
+            candidates.append(
+                build_advisory(
+                    advisory_key("post-drink-potty"),
+                    "Potty likely due",
+                    f"Drank {human_minutes_short(live['since_water_minutes'])} ago.",
+                    "behavior-trigger",
+                    24,
+                    build_triggered_by("behavior", ["Recent drink", "Post-drink potty trigger"]),
+                )
+            )
+
+    recent_play = list_recent_activity(events_desc, "play", schedule["post_play_potty_overdue"], now)
+    potty_after_play = find_latest_activity_after(events_desc, ["pee", "poop"], (recent_play or {}).get("event_time_utc"))
+    if live["since_play_minutes"] is not None and schedule["post_play_potty_due"] <= live["since_play_minutes"] <= schedule["post_play_potty_overdue"]:
+        if recent_play and not potty_after_play:
+            candidates.append(
+                build_advisory(
+                    advisory_key("post-play-potty"),
+                    "Potty likely due",
+                    f"Played {human_minutes_short(live['since_play_minutes'])} ago.",
+                    "behavior-trigger",
+                    26,
+                    build_triggered_by("behavior", ["Recent play", "Post-play potty trigger"]),
+                )
+            )
 
     if urgency(live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"]) == "overdue":
-        return {"title": "Pee break overdue", "reason": f"Last pee was {live['since_pee_minutes']}m ago"}
+        candidates.append(
+            build_advisory(
+                advisory_key("pee-overdue"),
+                "Pee break overdue",
+                f"Last pee was {human_minutes_short(live['since_pee_minutes'])} ago.",
+                "care-limit",
+                15,
+                build_triggered_by("care-limit", [f"Pee overdue after {human_minutes_short(schedule['pee_overdue'])}"]),
+            )
+        )
     if urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"]) == "overdue":
-        return {"title": "Needs sleep", "reason": f"Awake for {live['since_awake_minutes']}m"}
+        candidates.append(
+            build_advisory(
+                advisory_key("sleep-overdue"),
+                "Needs sleep",
+                f"Awake for {human_minutes_short(live['since_awake_minutes'])}.",
+                "schedule",
+                30,
+                build_triggered_by(
+                    "schedule",
+                    [f"Awake window {human_minutes_short(schedule['awake_due'])}-{human_minutes_short(schedule['awake_overdue'])}"],
+                ),
+            )
+        )
     if urgency(live["since_food_minutes"], schedule["food_due"], schedule["food_overdue"]) == "overdue":
-        return {"title": "Food likely due", "reason": f"Last food was {live['since_food_minutes']}m ago"}
+        candidates.append(
+            build_advisory(
+                advisory_key("food-due"),
+                "Food likely due",
+                f"Last food was {human_minutes_short(live['since_food_minutes'])} ago.",
+                "care-limit",
+                35,
+                build_triggered_by("care-limit", [f"Food overdue after {human_minutes_short(schedule['food_overdue'])}"]),
+            )
+        )
+    if urgency(live["since_water_minutes"], schedule["water_due"], schedule["water_overdue"]) == "overdue":
+        candidates.append(
+            build_advisory(
+                advisory_key("water-due"),
+                "Water likely due",
+                f"Last water was {human_minutes_short(live['since_water_minutes'])} ago.",
+                "care-limit",
+                40,
+                build_triggered_by("care-limit", [f"Water overdue after {human_minutes_short(schedule['water_overdue'])}"]),
+            )
+        )
     if urgency(live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"]) == "soon":
-        return {"title": "Potty soon", "reason": f"Last pee was {live['since_pee_minutes']}m ago"}
+        candidates.append(
+            build_advisory(
+                advisory_key("pee-soon"),
+                "Potty soon",
+                f"Last pee was {human_minutes_short(live['since_pee_minutes'])} ago.",
+                "schedule",
+                50,
+                build_triggered_by("schedule", [f"Pee due after {human_minutes_short(schedule['pee_due'])}"]),
+            )
+        )
     if urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"]) == "soon":
-        return {"title": "Sleep soon", "reason": f"Awake for {live['since_awake_minutes']}m"}
-    return {"title": "All good for now", "reason": "Nothing looks urgent right now"}
+        candidates.append(
+            build_advisory(
+                advisory_key("sleep-soon"),
+                "Sleep soon",
+                f"Awake for {human_minutes_short(live['since_awake_minutes'])}.",
+                "schedule",
+                55,
+                build_triggered_by("schedule", [f"Awake window due at {human_minutes_short(schedule['awake_due'])}"]),
+            )
+        )
+    if not candidates:
+        candidates.append(
+            build_advisory(
+                advisory_key("all-good"),
+                "All good for now",
+                "Nothing looks urgent right now.",
+                "schedule",
+                99,
+                build_triggered_by("schedule", ["No active due-soon, overdue, or trigger rules"]),
+            )
+        )
+    return candidates
+
+
+def build_logic_breakdown(
+    events_desc: List[Dict[str, Any]],
+    schedule: Dict[str, Any],
+    live: Dict[str, Any],
+    now: datetime,
+    primary_advisory: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    primary_key = primary_advisory.get("advisory_key")
+
+    pee_urgency = urgency(live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"])
+    potty_detail = "General potty timer is on track."
+    if pee_urgency == "soon":
+        potty_detail = f"Pee timing reaches due soon at {human_minutes_short(schedule['pee_due'])}."
+    elif pee_urgency == "overdue":
+        potty_detail = f"Pee timing is past the {human_minutes_short(schedule['pee_overdue'])} overdue mark."
+    rows.append(
+        {
+            "key": "potty-reset",
+            "label": "Recent potty reset",
+            "status": "ok" if pee_urgency == "ok" else pee_urgency,
+            "summary": f"Pee {human_minutes_short(live['since_pee_minutes'])} ago; poop {human_minutes_short(live['since_poop_minutes'])} ago.",
+            "detail": potty_detail,
+            "is_primary": primary_key in {"pee-overdue", "pee-soon"},
+        }
+    )
+
+    wake_last = find_last(events_desc, "wake")
+    potty_after_wake = find_latest_activity_after(events_desc, ["pee", "poop"], (wake_last or {}).get("event_time_utc"))
+    if wake_last and live["since_wake_minutes"] is not None:
+        wake_row = {
+            "key": "post-wake-potty",
+            "label": "After wake potty rule",
+            "summary": f"Last wake was {human_minutes_short(live['since_wake_minutes'])} ago.",
+            "is_primary": primary_key == "post-wake-potty",
+        }
+        if potty_after_wake:
+            wake_row["status"] = "cleared"
+            wake_row["detail"] = f"Cleared by {potty_after_wake['activity']} {human_minutes_short(minutes_since(potty_after_wake.get('event_time_utc'), now))} ago."
+        elif live["since_wake_minutes"] <= 15:
+            wake_row["status"] = "winner" if wake_row["is_primary"] else "active"
+            wake_row["detail"] = "Wake potty reminder stays active for 15 minutes unless a potty event is logged."
+        else:
+            wake_row["status"] = "idle"
+            wake_row["detail"] = "Wake potty reminder only applies for the first 15 minutes after waking."
+        rows.append(wake_row)
+
+    food_last = find_last(events_desc, "food")
+    potty_after_food = find_latest_activity_after(events_desc, ["pee", "poop"], (food_last or {}).get("event_time_utc"))
+    if food_last and live["since_food_minutes"] is not None:
+        food_row = {
+            "key": "post-food-potty",
+            "label": "After food potty rule",
+            "summary": f"Last meal was {human_minutes_short(live['since_food_minutes'])} ago.",
+            "is_primary": primary_key == "post-food-potty",
+        }
+        if potty_after_food:
+            food_row["status"] = "cleared"
+            food_row["detail"] = f"Cleared by {potty_after_food['activity']} {human_minutes_short(minutes_since(potty_after_food.get('event_time_utc'), now))} ago."
+        elif live["since_food_minutes"] < schedule["post_food_potty_due"]:
+            food_row["status"] = "waiting"
+            food_row["detail"] = f"Reminder starts at {human_minutes_short(schedule['post_food_potty_due'])} after a meal."
+        elif live["since_food_minutes"] >= schedule["post_food_potty_overdue"]:
+            food_row["status"] = "winner" if food_row["is_primary"] else "active"
+            food_row["detail"] = (
+                f"No pee or poop logged after that meal. The rule escalates after {human_minutes_short(schedule['post_food_potty_overdue'])}."
+            )
+        else:
+            food_row["status"] = "winner" if food_row["is_primary"] else "active"
+            food_row["detail"] = (
+                f"No pee or poop logged after that meal. The watch window is {human_minutes_short(schedule['post_food_potty_due'])}-"
+                f"{human_minutes_short(schedule['post_food_potty_overdue'])} after food."
+            )
+        rows.append(food_row)
+
+    awake_urgency = urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"])
+    awake_detail = f"Sleep window is {human_minutes_short(schedule['awake_due'])}-{human_minutes_short(schedule['awake_overdue'])} awake."
+    if awake_urgency == "ok":
+        awake_detail = f"On track until roughly {human_minutes_short(schedule['awake_due'])} awake."
+    elif awake_urgency == "overdue":
+        awake_detail = f"Past the {human_minutes_short(schedule['awake_overdue'])} awake limit."
+    rows.append(
+        {
+            "key": "awake-window",
+            "label": "Awake window",
+            "status": "winner" if primary_key in {"sleep-overdue", "sleep-soon"} else ("ok" if awake_urgency == "ok" else awake_urgency),
+            "summary": f"Awake for {human_minutes_short(live['since_awake_minutes'])}.",
+            "detail": awake_detail,
+            "is_primary": primary_key in {"sleep-overdue", "sleep-soon"},
+        }
+    )
+
+    return rows
+
+
+def apply_advisory_overrides(candidates: List[Dict[str, Any]], settings: Dict[str, Any], now: datetime) -> List[Dict[str, Any]]:
+    overrides = active_override_map(settings, now)
+    adjusted: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        override = overrides.get(candidate["advisory_key"])
+        if not override:
+            adjusted.append(candidate)
+            continue
+        updated = dict(candidate)
+        action = override.get("action")
+        if action in {"defer", "dismiss"}:
+            updated["status"] = "deferred"
+            updated["priority"] += 100
+            if override.get("expires_at_utc"):
+                updated["reason"] = f"{candidate['reason']} Deferred until {local_time_label(override['expires_at_utc'], settings['timezone_offset_minutes'])}."
+        elif action == "acknowledge":
+            updated["status"] = "active"
+        adjusted.append(updated)
+    return adjusted
 
 
 def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
     schedule = get_schedule(settings, now)
-    sleep_block = latest_sleep_block(events_desc, schedule)
+    sleep_block = latest_sleep_block(events_desc, settings)
 
     live = {
-        "since_awake_minutes": current_awake_minutes(events_desc, schedule, now),
+        "since_awake_minutes": current_awake_minutes(events_desc, settings, now),
         "since_pee_minutes": minutes_since((find_last(events_desc, "pee") or {}).get("event_time_utc"), now),
         "since_poop_minutes": minutes_since((find_last(events_desc, "poop") or {}).get("event_time_utc"), now),
         "since_food_minutes": minutes_since((find_last(events_desc, "food") or {}).get("event_time_utc"), now),
         "since_water_minutes": minutes_since((find_last(events_desc, "water") or {}).get("event_time_utc"), now),
+        "since_wake_minutes": minutes_since((find_last(events_desc, "wake") or {}).get("event_time_utc"), now),
+        "since_play_minutes": minutes_since((find_last(events_desc, "play") or {}).get("event_time_utc"), now),
         "sleep_block": sleep_block,
     }
 
@@ -434,11 +1333,30 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         "sleep": {"minutes": sleep_block["actual_duration_minutes"] if sleep_block else None, "urgency": "ok" if sleep_block and sleep_block["is_sleeping_now"] else "unknown"},
     }
 
+    advisories = apply_advisory_overrides(build_advisory_candidates(events_desc, settings, schedule, live, now), settings, now)
+    advisories.sort(key=lambda item: item["priority"])
+    primary_advisory = advisories[0]
+    logic_breakdown = build_logic_breakdown(events_desc, schedule, live, now, primary_advisory)
+    sleep_projection = {
+        "recommended_check_at_utc": sleep_block["recommended_check_time_utc"] if sleep_block else None,
+        "recommended_check_reason": sleep_block["recommended_check_reason"] if sleep_block else "Log sleep to project the next guidance checkpoint.",
+        "care_limit_warning": sleep_block["care_limit_warning"] if sleep_block else None,
+    }
+
     return {
         **live,
         "tiles": tiles,
         "schedule": schedule,
-        "needs_now": needs_now(events_desc, settings, schedule, live),
+        "primary_advisory": primary_advisory,
+        "active_advisories": advisories,
+        "logic_breakdown": logic_breakdown,
+        "schedule_profile_summary": {
+            "source": schedule["profile_source"],
+            "active_age_band_id": schedule["age_band_id"],
+            "display_label": schedule["age_label"],
+        },
+        "sleep_projection": sleep_projection,
+        "needs_now": {"title": primary_advisory["title"], "reason": primary_advisory["reason"]},
     }
 
 
@@ -480,8 +1398,6 @@ async def api_create_event(event: EventIn) -> JSONResponse:
     event_time = parse_iso(event.event_time_utc) or utc_now()
     duration = event.duration_minutes
     is_accident = normalize_is_accident(event.activity, event.is_accident)
-    if event.activity == "sleep" and duration is None:
-        duration = get_schedule(settings, event_time)["sleep_default"]
     if event.activity == "play" and duration is None:
         duration = 20
     with get_db() as conn:
@@ -547,6 +1463,52 @@ async def api_settings(settings: SettingsIn) -> JSONResponse:
     with get_db() as conn:
         for key, value in values.items():
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+    payload = dashboard_payload()
+    await manager.broadcast_json(payload)
+    return JSONResponse(payload)
+
+
+@app.get("/api/schedule-profile")
+def api_schedule_profile() -> JSONResponse:
+    settings = get_settings()
+    now = utc_now()
+    return JSONResponse(build_schedule_profile_payload(settings, now))
+
+
+@app.put("/api/schedule-profile")
+async def api_update_schedule_profile(profile: ScheduleProfileIn) -> JSONResponse:
+    normalized = normalize_schedule_profile(profile.model_dump())
+    error = validate_schedule_profile(normalized)
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
+    save_json_setting(SCHEDULE_PROFILE_KEY, normalized)
+    snapshot = dashboard_payload()
+    settings = get_settings()
+    profile_payload = build_schedule_profile_payload(settings, utc_now())
+    await manager.broadcast_json(snapshot)
+    return JSONResponse({"schedule_profile": profile_payload, "snapshot": snapshot})
+
+
+@app.post("/api/advisories/action")
+async def api_advisory_action(action: AdvisoryActionIn) -> JSONResponse:
+    settings = get_settings()
+    now = utc_now()
+    overrides = [
+        item for item in settings.get("advisory_overrides", [])
+        if item.get("advisory_key") != action.advisory_key
+    ]
+    expires_at = None
+    if action.action == "defer":
+        expires_at = (now + timedelta(minutes=action.defer_minutes or DEFAULT_DEFER_MINUTES)).isoformat()
+    overrides.append(
+        {
+            "advisory_key": action.advisory_key,
+            "action": action.action,
+            "expires_at_utc": expires_at,
+            "created_at_utc": now.isoformat(),
+        }
+    )
+    save_json_setting(ADVISORY_OVERRIDES_KEY, overrides)
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
     return JSONResponse(payload)
@@ -647,21 +1609,25 @@ HTML = r'''
     .small{font-size:.85rem}
     .muted{color:var(--muted)}
     details{margin-top:14px}
+    details.card{overflow:hidden}
     summary{cursor:pointer;font-weight:800}
     .settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
-    .settings-grid > div,.edit-grid > div{min-width:0}
+    .settings-grid > div,.edit-grid > div,.editor-grid > div{min-width:0}
     label{font-size:.82rem;font-weight:700;color:var(--muted);display:block;margin-bottom:6px}
-    input, select, textarea{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--input-border);font:inherit;background:var(--input);color:var(--text)}
+    input, select, textarea{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--input-border);font:inherit;background:var(--input);color:var(--text)}
     input::placeholder, textarea::placeholder{color:#70829f}
     textarea{min-height:84px;resize:vertical}
     .edit-panel{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
     .edit-panel.open{display:block}
     .edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-    .datetime-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(6.75rem,8.25rem);gap:8px;align-items:end}
-    .datetime-pair > *{min-width:0}
+    .datetime-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,8.25rem);gap:8px;align-items:end;overflow:hidden}
+    .datetime-pair > *{min-width:0;max-width:100%;justify-self:stretch}
     .datetime-pair .time-box{min-width:0}
-    .datetime-pair input{text-align:left;min-width:0}
-    input[type="date"],input[type="time"],input[type="datetime-local"]{min-width:0}
+    .datetime-pair input{min-width:0;max-width:100%;overflow:hidden}
+    input[type="date"],input[type="time"],input[type="datetime-local"]{display:block;width:100%;inline-size:100%;max-width:100%;min-width:0;box-sizing:border-box;background-clip:padding-box;-webkit-appearance:none;appearance:none;line-height:1.2}
+    input[type="date"]::-webkit-date-and-time-value,input[type="time"]::-webkit-date-and-time-value,input[type="datetime-local"]::-webkit-date-and-time-value{min-width:0;text-align:left}
+    input[type="date"]::-webkit-datetime-edit,input[type="time"]::-webkit-datetime-edit,input[type="datetime-local"]::-webkit-datetime-edit{padding:0;min-width:0;max-width:100%;display:block}
+    input[type="date"]::-webkit-datetime-edit-fields-wrapper,input[type="time"]::-webkit-datetime-edit-fields-wrapper,input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper{padding:0;min-width:0;max-width:100%;display:flex}
     .checkbox-row{display:flex;align-items:center;gap:10px;min-height:42px}
     .checkbox-row input{width:1.05rem;height:1.05rem;accent-color:var(--blue)}
     .checkbox-chip{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border);color:var(--text)}
@@ -672,12 +1638,17 @@ HTML = r'''
     .btn-danger{background:#40202b;color:#ffc7d1}
     .schedule-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
     .schedule-item{padding:10px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border)}
+    .editor-stack{display:grid;gap:10px;margin-top:10px}
+    .editor-card{padding:12px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border);min-width:0}
+    .editor-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+    .source-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:.74rem;color:var(--muted)}
+    .routine-meta{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}
     .log-day{width:5.75rem;font-size:.92rem;font-weight:700;color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
     .footer-version{margin-top:18px;text-align:center;font-size:.82rem;color:var(--muted)}
     @media (max-width:760px){
       .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
       .actions{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .settings-grid,.edit-grid,.schedule-list{grid-template-columns:1fr}
+      .settings-grid,.edit-grid,.schedule-list,.editor-grid{grid-template-columns:1fr}
       .datetime-pair{grid-template-columns:1fr}
       .wrap{padding:12px 12px 40px}
     }
@@ -719,9 +1690,35 @@ HTML = r'''
       <div id="schedule-blurb" class="small muted" style="margin-top:10px"></div>
       <div id="schedule-list" class="schedule-list"></div>
       <div class="small muted" style="margin-top:10px">
-        The app uses age based schedule guardrails, time since key activities, and a few fixed triggers.
-        Sleep starts are assumed immediately. A later Wake or any other later activity can end the sleep early.
+        The app shows the active age band, schedule guardrails, recent behavior triggers, and passive sleep guidance.
+        Sleep is logged as a start-only event. Wake or later activity closes the block, and overnight potty limits are emphasized when they matter.
       </div>
+    </details>
+
+    <details class="card">
+      <summary>Expected routine</summary>
+      <div id="schedule-profile-meta" class="small muted" style="margin-top:10px"></div>
+      <form id="schedule-profile-form">
+        <div class="row" style="margin-top:10px;margin-bottom:10px">
+          <div class="section-title" style="margin:0">Routine blocks</div>
+          <button id="add-routine-block" class="btn btn-small btn-ghost" type="button">Add block</button>
+        </div>
+        <div id="routine-block-list" class="editor-stack"></div>
+        <div class="row" style="margin-top:14px;margin-bottom:10px">
+          <div class="section-title" style="margin:0">Behavior triggers</div>
+        </div>
+        <div id="trigger-rule-list" class="editor-stack"></div>
+        <div class="row" style="margin-top:14px;margin-bottom:10px">
+          <div class="section-title" style="margin:0">Care limits</div>
+        </div>
+        <div id="care-limit-list" class="editor-stack"></div>
+        <div class="small muted" style="margin-top:10px">
+          Routine blocks repeat daily for now. Saving updates the active guidance banner and schedule explanation immediately.
+        </div>
+        <div style="margin-top:10px">
+          <button class="btn btn-blue" type="submit">Save expected routine</button>
+        </div>
+      </form>
     </details>
 
     <details class="card">
@@ -768,10 +1765,28 @@ HTML = r'''
 
   <script>
     let state = null;
+    let scheduleProfile = null;
     let ws = null;
     let lastSavedId = null;
     let currentLogDayIndex = 0;
     const DEVICE_ACTOR_KEY = 'puppy_tracker_device_actor';
+    const WEEKDAY_IDS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const ROUTINE_KIND_OPTIONS = [
+      ['sleep', 'Sleep'],
+      ['feeding', 'Feeding'],
+      ['training', 'Training'],
+      ['play', 'Play'],
+      ['water', 'Water'],
+      ['potty-opportunity', 'Potty opportunity'],
+    ];
+    const RULE_LABELS = {
+      post_food_potty: 'After food potty reminder',
+      post_drink_potty: 'After water potty reminder',
+      post_play_potty: 'After play potty reminder',
+    };
+    const CARE_LIMIT_LABELS = {
+      'potty:overnight': 'Overnight potty limit',
+    };
 
     const els = {
       title: document.getElementById('title'),
@@ -796,7 +1811,13 @@ HTML = r'''
       puppyBirthDate: document.getElementById('puppy-birth-date'),
       householdMembers: document.getElementById('household-members'),
       scheduleBlurb: document.getElementById('schedule-blurb'),
-      scheduleList: document.getElementById('schedule-list')
+      scheduleList: document.getElementById('schedule-list'),
+      scheduleProfileForm: document.getElementById('schedule-profile-form'),
+      scheduleProfileMeta: document.getElementById('schedule-profile-meta'),
+      routineBlockList: document.getElementById('routine-block-list'),
+      triggerRuleList: document.getElementById('trigger-rule-list'),
+      careLimitList: document.getElementById('care-limit-list'),
+      addRoutineBlock: document.getElementById('add-routine-block')
     };
 
     function escapeHtml(value) {
@@ -836,6 +1857,12 @@ HTML = r'''
       return `${humanMinutesShort(minutes)} ago`;
     }
 
+    function editorMinutesHint(minutes) {
+      const value = Number(minutes || 0);
+      if (!Number.isFinite(value) || value <= 0) return '';
+      return humanMinutesShort(value);
+    }
+
     function formatWhen(iso) {
       const d = parseUtc(iso);
       if (!d) return 'Unknown time';
@@ -861,10 +1888,40 @@ HTML = r'''
       return { date: value.slice(0, 10), time: value.slice(11, 16) };
     }
 
+    function normalizeDateInput(value) {
+      const match = String(value || '').trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (!match) return null;
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const candidate = new Date(year, month - 1, day);
+      if (
+        Number.isNaN(candidate.getTime())
+        || candidate.getFullYear() !== year
+        || candidate.getMonth() !== month - 1
+        || candidate.getDate() !== day
+      ) return null;
+      return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    function normalizeTimeInput(value) {
+      const match = String(value || '').trim().match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!match) return null;
+      const hour = Number(match[1]);
+      const minute = Number(match[2]);
+      if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
+
     function combineLocalDateTime(dateValue, timeValue) {
-      const safeDate = dateValue || localDateValue();
-      const safeTime = timeValue || '12:00';
-      return new Date(`${safeDate}T${safeTime}`);
+      const safeDate = normalizeDateInput(dateValue || localDateValue());
+      const safeTime = normalizeTimeInput(timeValue || '12:00');
+      if (!safeDate || !safeTime) return null;
+      const [year, month, day] = safeDate.split('-').map(Number);
+      const [hour, minute] = safeTime.split(':').map(Number);
+      const local = new Date(year, month - 1, day, hour, minute, 0, 0);
+      if (Number.isNaN(local.getTime())) return null;
+      return local;
     }
 
     function canMarkAccident(activity) {
@@ -914,8 +1971,11 @@ HTML = r'''
     }
 
     function renderBanner() {
-      els.needsTitle.textContent = state.live_state.needs_now.title;
-      els.needsReason.textContent = state.live_state.needs_now.reason;
+      const advisory = state.live_state.primary_advisory || state.live_state.needs_now;
+      const driverText = advisory.triggered_by?.length ? ` Triggered by ${advisory.triggered_by.join('; ')}.` : '';
+      const statusText = advisory.status && advisory.status !== 'active' ? ` Status: ${advisory.status}.` : '';
+      els.needsTitle.textContent = advisory.title;
+      els.needsReason.textContent = `${advisory.reason}${driverText}${statusText}`;
     }
 
     function quickButtons() {
@@ -937,9 +1997,12 @@ HTML = r'''
       els.quickAccident.checked = false;
     }
 
-    function sleepDurationHours(event) {
-      const minutes = Number(event?.duration_minutes || 120);
-      return Math.max(1, Math.round(minutes / 60));
+    function describeSleepEvent(event) {
+      if (!event || event.activity !== 'sleep') return '';
+      if (event.duration_minutes) {
+        return `Legacy sleep block planned for ${humanMinutesShort(Number(event.duration_minutes))}.`;
+      }
+      return 'Sleep start logged. Wake or the next activity will close the block.';
     }
 
     function eventDayKey(event) {
@@ -991,7 +2054,7 @@ HTML = r'''
           </div>
           <div class="small muted" style="margin-top:8px">${formatWhen(event.event_time_utc)}</div>
           ${event.note ? `<div class="small" style="margin-top:8px">${escapeHtml(event.note)}</div>` : ''}
-          ${event.activity === 'sleep' ? `<div class="small muted" style="margin-top:6px">Sleep for ${sleepDurationHours(event)}h</div>` : ''}
+          ${event.activity === 'sleep' ? `<div class="small muted" style="margin-top:6px">${escapeHtml(describeSleepEvent(event))}</div>` : ''}
           <div id="edit-${event.id}" class="edit-panel">
             <div class="edit-grid">
               <div>
@@ -1008,10 +2071,6 @@ HTML = r'''
                   <input id="edit-date-${event.id}" type="date" value="${splitLocalDateTime(parseUtc(event.event_time_utc) || new Date()).date}">
                   <input id="edit-time-${event.id}" class="time-box" type="time" value="${splitLocalDateTime(parseUtc(event.event_time_utc) || new Date()).time}">
                 </div>
-              </div>
-              <div id="edit-sleep-wrap-${event.id}" style="${event.activity === 'sleep' ? '' : 'display:none'}">
-                <label>Sleep for</label>
-                <input id="edit-sleep-hours-${event.id}" type="number" min="1" step="1" inputmode="numeric" value="${event.activity === 'sleep' ? sleepDurationHours(event) : 2}">
               </div>
               <div id="edit-accident-wrap-${event.id}" class="checkbox-row" style="${canMarkAccident(event.activity) ? '' : 'visibility:hidden'}">
                 <input id="edit-accident-${event.id}" type="checkbox" ${event.is_accident ? 'checked' : ''}>
@@ -1034,10 +2093,8 @@ HTML = r'''
         const activitySelect = document.getElementById(`edit-activity-${event.id}`);
         if (activitySelect) {
           activitySelect.addEventListener('change', () => {
-            const sleepWrap = document.getElementById(`edit-sleep-wrap-${event.id}`);
             const accidentWrap = document.getElementById(`edit-accident-wrap-${event.id}`);
             const accidentInput = document.getElementById(`edit-accident-${event.id}`);
-            sleepWrap.style.display = activitySelect.value === 'sleep' ? '' : 'none';
             accidentWrap.style.visibility = canMarkAccident(activitySelect.value) ? 'visible' : 'hidden';
             if (!canMarkAccident(activitySelect.value)) accidentInput.checked = false;
           });
@@ -1066,18 +2123,284 @@ HTML = r'''
       }
     }
 
+    function sourceLabel(source) {
+      return source === 'default-age-band' || source === 'default' ? 'Default' : 'Custom';
+    }
+
+    function sourceChip(source) {
+      return `<span class="source-chip">${escapeHtml(sourceLabel(source))}</span>`;
+    }
+
+    function bindMinutesHint(inputId, hintId) {
+      const input = document.getElementById(inputId);
+      const hint = document.getElementById(hintId);
+      if (!input || !hint) return;
+      const sync = () => {
+        hint.textContent = editorMinutesHint(input.value);
+      };
+      input.addEventListener('input', sync);
+      input.addEventListener('change', sync);
+      sync();
+    }
+
+    function makeRoutineBlock(kind = 'sleep') {
+      const defaultDuration = kind === 'sleep' ? Number(state?.live_state?.schedule?.day_sleep_minutes || 120) : kind === 'play' ? 25 : 15;
+      const defaultTime = kind === 'sleep' ? '09:00' : kind === 'feeding' ? '07:00' : '12:00';
+      const label = ROUTINE_KIND_OPTIONS.find(([value]) => value === kind)?.[1] || 'Routine block';
+      return {
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        kind,
+        label,
+        start_local_time: defaultTime,
+        duration_minutes: defaultDuration,
+        days_of_week: [...WEEKDAY_IDS],
+        enabled: true,
+        source: 'custom',
+      };
+    }
+
+    function renderScheduleEditor() {
+      if (!scheduleProfile) {
+        els.scheduleProfileMeta.textContent = 'Loading expected routine...';
+        els.routineBlockList.innerHTML = '';
+        els.triggerRuleList.innerHTML = '';
+        els.careLimitList.innerHTML = '';
+        return;
+      }
+
+      const ageBand = scheduleProfile.active_age_band?.label || 'Unknown age band';
+      els.scheduleProfileMeta.textContent = `Editing the expected routine for ${ageBand}. Default items come from the active age band; anything you change becomes custom guidance.`;
+
+      const blocks = scheduleProfile.routine_blocks || [];
+      els.routineBlockList.innerHTML = blocks.map((block, index) => `
+        <div class="editor-card" data-source="${escapeHtml(block.source || 'custom')}">
+          <div class="routine-meta">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <strong>${escapeHtml(block.label || `Routine block ${index + 1}`)}</strong>
+              ${sourceChip(block.source)}
+              <span class="small muted">Daily block</span>
+            </div>
+            <button class="btn btn-small btn-ghost" type="button" onclick="removeRoutineBlock(${index})">Remove</button>
+          </div>
+          <div class="editor-grid">
+            <div>
+              <label>Kind</label>
+              <select id="block-kind-${index}">
+                ${ROUTINE_KIND_OPTIONS.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === block.kind ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label>Label</label>
+              <input id="block-label-${index}" value="${escapeHtml(block.label || '')}">
+            </div>
+            <div>
+              <label>Start</label>
+              <input id="block-start-${index}" type="time" value="${escapeHtml(block.start_local_time || '')}">
+            </div>
+            <div>
+              <label>Duration (minutes)</label>
+              <input id="block-duration-${index}" type="number" min="5" step="5" inputmode="numeric" value="${Number(block.duration_minutes || 0)}">
+              <div id="block-duration-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(block.duration_minutes))}</div>
+            </div>
+            <div class="checkbox-row">
+              <input id="block-enabled-${index}" type="checkbox" ${block.enabled ? 'checked' : ''}>
+              <label for="block-enabled-${index}" style="margin:0;color:var(--text)">Enabled</label>
+            </div>
+          </div>
+        </div>
+      `).join('') || '<div class="small muted">No routine blocks yet. Add one to start shaping the day.</div>';
+
+      const rules = scheduleProfile.trigger_rules || [];
+      els.triggerRuleList.innerHTML = rules.map((rule, index) => `
+        <div class="editor-card" data-source="${escapeHtml(rule.source || 'custom')}">
+          <div class="routine-meta">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <strong>${escapeHtml(RULE_LABELS[rule.rule_key] || rule.rule_key)}</strong>
+              ${sourceChip(rule.source)}
+            </div>
+          </div>
+          <div class="editor-grid">
+            <div>
+              <label>Due after (minutes)</label>
+              <input id="rule-due-${index}" type="number" min="0" step="1" inputmode="numeric" value="${Number(rule.due_minutes ?? 0)}">
+              <div id="rule-due-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(rule.due_minutes))}</div>
+            </div>
+            <div>
+              <label>Overdue after (minutes)</label>
+              <input id="rule-overdue-${index}" type="number" min="0" step="1" inputmode="numeric" value="${Number(rule.overdue_minutes ?? 0)}">
+              <div id="rule-overdue-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(rule.overdue_minutes))}</div>
+            </div>
+            <div style="grid-column:span 2">
+              <label>Why this rule exists</label>
+              <input id="rule-notes-${index}" value="${escapeHtml(rule.notes || '')}">
+            </div>
+            <div class="checkbox-row">
+              <input id="rule-enabled-${index}" type="checkbox" ${rule.enabled ? 'checked' : ''}>
+              <label for="rule-enabled-${index}" style="margin:0;color:var(--text)">Enabled</label>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      const limits = scheduleProfile.care_limits || [];
+      els.careLimitList.innerHTML = limits.map((limit, index) => `
+        <div class="editor-card" data-source="${escapeHtml(limit.source || 'custom')}">
+          <div class="routine-meta">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <strong>${escapeHtml(CARE_LIMIT_LABELS[`${limit.need}:${limit.context}`] || `${limit.need} ${limit.context}`)}</strong>
+              ${sourceChip(limit.source)}
+            </div>
+          </div>
+          <div class="editor-grid">
+            <div>
+              <label>Limit (minutes)</label>
+              <input id="limit-minutes-${index}" type="number" min="60" step="5" inputmode="numeric" value="${Number(limit.limit_minutes || 0)}">
+              <div id="limit-minutes-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(limit.limit_minutes))}</div>
+            </div>
+            <div>
+              <label>Emphasis</label>
+              <select id="limit-emphasis-${index}">
+                <option value="normal" ${limit.emphasis === 'normal' ? 'selected' : ''}>Normal</option>
+                <option value="high" ${limit.emphasis === 'high' ? 'selected' : ''}>High</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      blocks.forEach((_, index) => bindMinutesHint(`block-duration-${index}`, `block-duration-hint-${index}`));
+      rules.forEach((_, index) => {
+        bindMinutesHint(`rule-due-${index}`, `rule-due-hint-${index}`);
+        bindMinutesHint(`rule-overdue-${index}`, `rule-overdue-hint-${index}`);
+      });
+      limits.forEach((_, index) => bindMinutesHint(`limit-minutes-${index}`, `limit-minutes-hint-${index}`));
+    }
+
+    function loadRoutineBlocksFromDom() {
+      return (scheduleProfile?.routine_blocks || []).map((block, index) => {
+        const updated = {
+          id: block.id,
+          kind: document.getElementById(`block-kind-${index}`).value,
+          label: document.getElementById(`block-label-${index}`).value.trim(),
+          start_local_time: document.getElementById(`block-start-${index}`).value,
+          duration_minutes: Math.max(5, Number(document.getElementById(`block-duration-${index}`).value || 0)),
+          days_of_week: Array.isArray(block.days_of_week) && block.days_of_week.length ? block.days_of_week : [...WEEKDAY_IDS],
+          enabled: document.getElementById(`block-enabled-${index}`).checked,
+          source: block.source || 'custom',
+        };
+        const changed = updated.kind !== block.kind
+          || updated.label !== block.label
+          || updated.start_local_time !== block.start_local_time
+          || Number(updated.duration_minutes || 0) !== Number(block.duration_minutes || 0)
+          || updated.enabled !== block.enabled;
+        if (changed && sourceLabel(block.source) === 'Default') updated.source = 'custom';
+        return updated;
+      }).filter(block => block.label && block.start_local_time);
+    }
+
+    function loadTriggerRulesFromDom() {
+      return (scheduleProfile?.trigger_rules || []).map((rule, index) => {
+        const updated = {
+          rule_key: rule.rule_key,
+          enabled: document.getElementById(`rule-enabled-${index}`).checked,
+          due_minutes: Number(document.getElementById(`rule-due-${index}`).value || 0),
+          overdue_minutes: Number(document.getElementById(`rule-overdue-${index}`).value || 0),
+          notes: document.getElementById(`rule-notes-${index}`).value.trim(),
+          source: rule.source || 'custom',
+        };
+        const changed = updated.enabled !== rule.enabled
+          || updated.due_minutes !== Number(rule.due_minutes || 0)
+          || updated.overdue_minutes !== Number(rule.overdue_minutes || 0)
+          || updated.notes !== (rule.notes || '');
+        if (changed && sourceLabel(rule.source) === 'Default') updated.source = 'custom';
+        return updated;
+      });
+    }
+
+    function loadCareLimitsFromDom() {
+      return (scheduleProfile?.care_limits || []).map((limit, index) => {
+        const updated = {
+          need: limit.need,
+          context: limit.context,
+          limit_minutes: Math.max(60, Number(document.getElementById(`limit-minutes-${index}`).value || 0)),
+          source: limit.source || 'custom',
+          emphasis: document.getElementById(`limit-emphasis-${index}`).value,
+        };
+        const changed = updated.limit_minutes !== Number(limit.limit_minutes || 0) || updated.emphasis !== limit.emphasis;
+        if (changed && sourceLabel(limit.source) === 'Default') updated.source = 'custom';
+        return updated;
+      });
+    }
+
+    function collectScheduleProfileFromDom() {
+      const routine_blocks = loadRoutineBlocksFromDom();
+      const trigger_rules = loadTriggerRulesFromDom();
+      const care_limits = loadCareLimitsFromDom();
+      const hasCustom = [...routine_blocks, ...trigger_rules, ...care_limits].some(item => sourceLabel(item.source) === 'Custom');
+      return {
+        source: hasCustom ? 'custom' : 'default',
+        routine_blocks,
+        trigger_rules,
+        care_limits,
+      };
+    }
+
+    async function loadScheduleProfile(shouldRender = true) {
+      const res = await fetch('/api/schedule-profile');
+      scheduleProfile = await res.json();
+      if (shouldRender) renderScheduleEditor();
+      return scheduleProfile;
+    }
+
     function renderSchedule() {
+      const live = state.live_state;
       const s = state.live_state.schedule;
-      els.scheduleBlurb.textContent = `${state.settings.puppy_birth_date ? `Using birth date ${state.settings.puppy_birth_date}. ` : ''}Current schedule: ${s.age_label} (${s.age_weeks} weeks).`;
-      const items = [
-        ['Pee due', `${s.pee_due}m`, `Overdue at ${s.pee_overdue}m`],
-        ['Poop due', `${s.poop_due}m`, `Overdue at ${s.poop_overdue}m`],
-        ['Food due', `${s.food_due}m`, `Overdue at ${s.food_overdue}m`],
-        ['Water due', `${s.water_due}m`, `Overdue at ${s.water_overdue}m`],
-        ['Sleep due', `${s.awake_due}m awake`, `Overdue at ${s.awake_overdue}m awake`],
-        ['Post-food potty', `${s.post_food_potty_due}m`, `Overdue at ${s.post_food_potty_overdue}m`],
+      const primary = live.primary_advisory || { title: 'All good for now', reason: 'Nothing looks urgent right now.', triggered_by: [] };
+      const projection = live.sleep_projection || {};
+      const logicBreakdown = live.logic_breakdown || [];
+      const sourceLabel = live.schedule_profile_summary?.source === 'default' ? 'default guidance' : 'custom routine + guidance';
+      const statusLabel = {
+        winner: 'Driving banner',
+        active: 'Active rule',
+        cleared: 'Cleared',
+        waiting: 'Waiting',
+        idle: 'Inactive',
+        ok: 'On track',
+        soon: 'Due soon',
+        overdue: 'Overdue',
+        unknown: 'No data',
+      };
+      const cards = [
+        {
+          title: 'Current recommendation',
+          primary: primary.title,
+          secondary: primary.reason,
+        },
+        {
+          title: 'Why this is showing',
+          primary: primary.triggered_by?.length ? primary.triggered_by.join(' | ') : 'No active trigger details',
+          secondary: `${s.context_label} rules using ${sourceLabel}`,
+        },
+        ...logicBreakdown.map(item => ({
+          title: item.label,
+          primary: statusLabel[item.status] || item.status,
+          secondary: `${item.summary || ''}${item.detail ? ` ${item.detail}` : ''}`.trim(),
+        })),
+        {
+          title: 'Sleep projection',
+          primary: projection.recommended_check_at_utc ? `Check again around ${formatWhen(projection.recommended_check_at_utc)}` : 'Log sleep to project the next guidance checkpoint',
+          secondary: projection.care_limit_warning || projection.recommended_check_reason || 'No active sleep projection yet.',
+        },
+        ...(s.routine_summary || []),
       ];
-      els.scheduleList.innerHTML = items.map(([a,b,c]) => `<div class="schedule-item"><div><strong>${a}</strong></div><div class="small muted" style="margin-top:4px">${b}</div><div class="small muted">${c}</div></div>`).join('');
+      els.scheduleBlurb.textContent = `${state.settings.puppy_birth_date ? `Using birth date ${state.settings.puppy_birth_date}. ` : ''}Current schedule: ${s.age_label} (${s.age_weeks} weeks), ${s.context_label.toLowerCase()} mode, ${sourceLabel}. Cards below show which rules are active, cleared, or still waiting.`;
+      els.scheduleList.innerHTML = cards.map(card => `
+        <div class="schedule-item">
+          <div><strong>${escapeHtml(card.title)}</strong></div>
+          <div class="small" style="margin-top:4px">${escapeHtml(card.primary || '')}</div>
+          <div class="small muted">${escapeHtml(card.secondary || '')}</div>
+        </div>
+      `).join('');
     }
 
     function renderAll() {
@@ -1088,6 +2411,7 @@ HTML = r'''
       renderEvents();
       renderSettings();
       renderSchedule();
+      renderScheduleEditor();
     }
 
     function showToast(text) {
@@ -1097,8 +2421,12 @@ HTML = r'''
     }
 
     async function loadState() {
-      const res = await fetch('/api/state');
-      state = await res.json();
+      const [stateRes, profileRes] = await Promise.all([
+        fetch('/api/state'),
+        fetch('/api/schedule-profile'),
+      ]);
+      state = await stateRes.json();
+      scheduleProfile = await profileRes.json();
       currentLogDayIndex = 0;
       renderAll();
     }
@@ -1107,7 +2435,6 @@ HTML = r'''
       const actor = getDeviceActor() || state.settings.household_members[0] || 'McCaul';
       const payload = { activity, actor, event_time_utc: new Date().toISOString() };
       if (canMarkAccident(activity)) payload.is_accident = els.quickAccident.checked;
-      if (activity === 'sleep') payload.duration_minutes = state.live_state.schedule.sleep_default;
       if (activity === 'play') payload.duration_minutes = 20;
       const res = await fetch('/api/events', {
         method: 'POST',
@@ -1125,12 +2452,28 @@ HTML = r'''
       if (canMarkAccident(activity)) els.quickAccident.checked = false;
       renderAll();
       if (activity === 'sleep') {
-        showToast(`Sleep logged for ${humanMinutesShort(state.live_state.schedule.sleep_default)}`);
+        showToast(`Sleep logged. ${state.live_state.sleep_projection.recommended_check_reason}`);
       } else {
         showToast(`${activity.charAt(0).toUpperCase() + activity.slice(1)} logged`);
       }
     }
     window.quickLog = quickLog;
+
+    function addRoutineBlock() {
+      if (!scheduleProfile) return;
+      scheduleProfile.routine_blocks = [...(scheduleProfile.routine_blocks || []), makeRoutineBlock()];
+      scheduleProfile.source = 'custom';
+      renderScheduleEditor();
+    }
+    window.addRoutineBlock = addRoutineBlock;
+
+    function removeRoutineBlock(index) {
+      if (!scheduleProfile) return;
+      scheduleProfile.routine_blocks = (scheduleProfile.routine_blocks || []).filter((_, itemIndex) => itemIndex !== index);
+      scheduleProfile.source = 'custom';
+      renderScheduleEditor();
+    }
+    window.removeRoutineBlock = removeRoutineBlock;
 
     function toggleEdit(id, force) {
       const panel = document.getElementById(`edit-${id}`);
@@ -1147,12 +2490,11 @@ HTML = r'''
       const timeValue = document.getElementById(`edit-time-${id}`).value;
       const note = document.getElementById(`edit-note-${id}`).value.trim();
       const eventTime = combineLocalDateTime(dateValue, timeValue);
-      const is_accident = canMarkAccident(activity) ? document.getElementById(`edit-accident-${id}`).checked : false;
-      let duration_minutes = null;
-      if (activity === 'sleep') {
-        const sleepHours = Number(document.getElementById(`edit-sleep-hours-${id}`).value || 2);
-        duration_minutes = Math.max(60, Math.round(sleepHours) * 60);
+      if (!eventTime) {
+        alert('Could not read the date and time.');
+        return;
       }
+      const is_accident = canMarkAccident(activity) ? document.getElementById(`edit-accident-${id}`).checked : false;
       const res = await fetch(`/api/events/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1160,7 +2502,7 @@ HTML = r'''
           activity,
           actor,
           event_time_utc: eventTime.toISOString(),
-          duration_minutes,
+          duration_minutes: activity === 'play' ? 20 : null,
           is_accident,
           note,
         })
@@ -1209,6 +2551,7 @@ HTML = r'''
         return;
       }
       state = data;
+      await loadScheduleProfile(false);
       currentLogDayIndex = 0;
       const currentActor = getDeviceActor();
       if (!household_members.includes(currentActor) && household_members[0]) {
@@ -1217,6 +2560,28 @@ HTML = r'''
       renderAll();
       showToast('Settings saved');
     });
+
+    els.scheduleProfileForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = collectScheduleProfileFromDom();
+      const res = await fetch('/api/schedule-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Could not save expected routine');
+        return;
+      }
+      scheduleProfile = data.schedule_profile;
+      state = data.snapshot;
+      currentLogDayIndex = 0;
+      renderAll();
+      showToast('Expected routine updated');
+    });
+
+    els.addRoutineBlock.addEventListener('click', () => addRoutineBlock());
 
     els.deviceActor.addEventListener('change', () => {
       setDeviceActor(els.deviceActor.value);
@@ -1239,8 +2604,9 @@ HTML = r'''
         els.wsDot.classList.add('online');
         els.wsStatus.textContent = 'Live';
       };
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         state = JSON.parse(event.data);
+        await loadScheduleProfile(false);
         renderAll();
       };
       ws.onclose = () => {

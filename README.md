@@ -8,6 +8,8 @@ The current behavioral source of truth is [`puppy_coordinator_behavioral_spec_v1
 
 The in-progress release candidate and supporting process docs live under [`test_app`](C:\Users\mccau\Codex Projects\puppy_tracker\test_app), with the docs index at [`test_app/docs/README.md`](C:\Users\mccau\Codex Projects\puppy_tracker\test_app\docs\README.md).
 
+The high-level future-work backlog lives at [`docs/BACKLOG.md`](C:\Users\mccau\Codex Projects\puppy_tracker\docs\BACKLOG.md).
+
 This root README is mainly for running and deploying the current live app.
 
 ## What It Does
