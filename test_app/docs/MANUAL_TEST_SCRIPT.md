@@ -83,6 +83,23 @@ Expected:
 - device actor defaults remain valid
 - second device sees updated settings
 
+### 6a. Expected routine overview
+
+- Open the `Expected routine` section.
+- Confirm the first view explains the day in `Now`, `Next`, and `Later today` language.
+- Confirm the routine source badge explains whether the app is auto-following the current age band or using a custom routine.
+- Confirm the routine does not look like a rigid work calendar.
+
+### 6b. Routine customization and age-upgrade review
+
+- Save a simple custom routine.
+- Confirm the source badge changes to a custom routine state.
+- Change the puppy birth date so the recommended age band advances.
+- Confirm an age-upgrade proposal appears with both accept and reject choices.
+- Reject the proposal and confirm the custom routine remains active.
+- Recreate the pending proposal and accept it.
+- Confirm the routine returns to the current age recommendation.
+
 ### 7. Data hygiene checks
 
 - Save household members with extra spaces.
@@ -125,3 +142,4 @@ Do not promote to live if any of these fail:
 - editing corrupts event times or durations
 - settings save invalid or surprising values
 - live state tiles do not recalculate after changes
+- the expected routine silently rewrites a custom routine after an age change without user acceptance

@@ -27,6 +27,50 @@ SCHEDULE_PROFILE_KEY = "schedule_profile"
 ADVISORY_OVERRIDES_KEY = "advisory_overrides"
 DEFAULT_DEFER_MINUTES = 20
 WEEKDAY_IDS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+ROUTINE_FIELDS = [
+    "pee_due",
+    "pee_overdue",
+    "poop_due",
+    "poop_overdue",
+    "food_due",
+    "food_overdue",
+    "water_due",
+    "water_overdue",
+    "awake_due",
+    "awake_overdue",
+    "sleep_default",
+    "post_food_potty_due",
+    "post_food_potty_overdue",
+]
+ROUTINE_FIELD_LABELS = {
+    "pee_due": "Pee due",
+    "pee_overdue": "Pee overdue",
+    "poop_due": "Poop due",
+    "poop_overdue": "Poop overdue",
+    "food_due": "Food due",
+    "food_overdue": "Food overdue",
+    "water_due": "Water due",
+    "water_overdue": "Water overdue",
+    "awake_due": "Sleep due",
+    "awake_overdue": "Sleep overdue",
+    "sleep_default": "Nap length",
+    "post_food_potty_due": "Post-food potty due",
+    "post_food_potty_overdue": "Post-food potty overdue",
+}
+ROUTINE_VALUE_PAIRS = [
+    ("pee_due", "pee_overdue"),
+    ("poop_due", "poop_overdue"),
+    ("food_due", "food_overdue"),
+    ("water_due", "water_overdue"),
+    ("awake_due", "awake_overdue"),
+    ("post_food_potty_due", "post_food_potty_overdue"),
+]
+SIMPLE_ROUTINE_GROUPS = [
+    {"id": "potty_rhythm", "label": "Potty rhythm", "description": "How quickly potty trips become due.", "fields": ["pee_due", "pee_overdue"]},
+    {"id": "meal_rhythm", "label": "Meal rhythm", "description": "How quickly meals become due.", "fields": ["food_due", "food_overdue"]},
+    {"id": "awake_window", "label": "Awake window", "description": "How long awake stretches usually last.", "fields": ["awake_due", "awake_overdue"]},
+    {"id": "nap_length", "label": "Nap length", "description": "The usual nap target for quick sleep logs.", "fields": ["sleep_default"]},
+]
 
 AGE_BAND_DEFAULTS = [
     {
@@ -155,8 +199,21 @@ AGE_BAND_DEFAULTS = [
         "post_play_potty_overdue": 15,
     },
 ]
+DEFAULT_ROUTINE_PROFILE_STATE = {
+    "version": 1,
+    "routine_mode": "default_auto",
+    "last_reviewed_recommendation_band_id": None,
+    "last_proposal_action": None,
+    "custom_profile": None,
+}
 
 app = FastAPI(title=APP_TITLE)
+
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 @contextmanager
@@ -296,6 +353,7 @@ def init_db() -> None:
             "puppy_birth_date": "",
             SCHEDULE_PROFILE_KEY: json.dumps({"source": "default", "routine_blocks": [], "trigger_rules": [], "care_limits": []}),
             ADVISORY_OVERRIDES_KEY: json.dumps([]),
+            "routine_profile_state": json.dumps(DEFAULT_ROUTINE_PROFILE_STATE),
         }
         for key, value in defaults.items():
             if key not in existing:
@@ -327,6 +385,16 @@ class SettingsIn(BaseModel):
     activities: List[str] = Field(..., min_items=3, max_items=20)
     household_members: List[str] = Field(default_factory=lambda: DEFAULT_HOUSEHOLD_MEMBERS.copy(), min_items=1, max_items=10)
     puppy_birth_date: Optional[str] = Field(default="")
+
+
+class RoutineProfileIn(BaseModel):
+    base_age_band_id: str = Field(..., min_length=1, max_length=50)
+    save_mode: str = Field(..., min_length=1, max_length=20)
+    custom_values: Dict[str, int]
+
+
+class RoutineProposalDecisionIn(BaseModel):
+    action: str = Field(..., min_length=1, max_length=20)
 
 
 class RoutineBlockIn(BaseModel):
@@ -414,6 +482,7 @@ def get_settings() -> Dict[str, Any]:
         "puppy_birth_date": raw.get("puppy_birth_date", ""),
         "schedule_profile": schedule_profile,
         "advisory_overrides": advisory_overrides,
+        "routine_profile_state": raw.get("routine_profile_state", json.dumps(DEFAULT_ROUTINE_PROFILE_STATE)),
     }
 
 
@@ -453,6 +522,139 @@ def resolve_age_band(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     resolved = json_clone(AGE_BAND_DEFAULTS[-1])
     resolved["age_weeks"] = round(age_weeks, 1)
     return resolved
+
+
+def get_schedule_band_by_id(band_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not band_id:
+        return None
+    for band in AGE_BAND_DEFAULTS:
+        if band["id"] == band_id:
+            return json_clone(band)
+    return None
+
+
+def schedule_values_from_band(band: Dict[str, Any]) -> Dict[str, int]:
+    return {
+        "pee_due": int(band["pee_due"]),
+        "pee_overdue": int(band["pee_overdue"]),
+        "poop_due": int(band["poop_due"]),
+        "poop_overdue": int(band["poop_overdue"]),
+        "food_due": int(band["food_due"]),
+        "food_overdue": int(band["food_overdue"]),
+        "water_due": int(band["water_due"]),
+        "water_overdue": int(band["water_overdue"]),
+        "awake_due": int(band["awake_due"]),
+        "awake_overdue": int(band["awake_overdue"]),
+        "sleep_default": int(band["day_sleep_minutes"]),
+        "post_food_potty_due": int(band["post_food_potty_due"]),
+        "post_food_potty_overdue": int(band["post_food_potty_overdue"]),
+    }
+
+
+def normalize_routine_values(base_values: Dict[str, int], custom_values: Any) -> Dict[str, int]:
+    if not isinstance(custom_values, dict):
+        return base_values.copy()
+    normalized = base_values.copy()
+    for field in ROUTINE_FIELDS:
+        raw_value = custom_values.get(field, base_values[field])
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = base_values[field]
+        normalized[field] = value if 1 <= value <= 1440 else base_values[field]
+    for due_key, overdue_key in ROUTINE_VALUE_PAIRS:
+        if normalized[due_key] >= normalized[overdue_key]:
+            normalized[due_key] = base_values[due_key]
+            normalized[overdue_key] = base_values[overdue_key]
+    return normalized
+
+
+def normalize_routine_profile_state(raw_value: Any) -> Dict[str, Any]:
+    state = {
+        "version": 1,
+        "routine_mode": "default_auto",
+        "last_reviewed_recommendation_band_id": None,
+        "last_proposal_action": None,
+        "custom_profile": None,
+    }
+    parsed = raw_value
+    if isinstance(raw_value, str):
+        try:
+            parsed = json.loads(raw_value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = None
+    if not isinstance(parsed, dict):
+        return state
+
+    routine_mode = parsed.get("routine_mode")
+    if routine_mode in {"default_auto", "custom_manual"}:
+        state["routine_mode"] = routine_mode
+    reviewed_band_id = parsed.get("last_reviewed_recommendation_band_id")
+    if get_schedule_band_by_id(reviewed_band_id):
+        state["last_reviewed_recommendation_band_id"] = reviewed_band_id
+    last_proposal_action = parsed.get("last_proposal_action")
+    if last_proposal_action in {"accepted", "rejected"}:
+        state["last_proposal_action"] = last_proposal_action
+
+    custom_profile = parsed.get("custom_profile")
+    if state["routine_mode"] == "custom_manual" and isinstance(custom_profile, dict):
+        base_age_band_id = custom_profile.get("base_age_band_id")
+        base_band = get_schedule_band_by_id(base_age_band_id)
+        if base_band:
+            state["custom_profile"] = {
+                "base_age_band_id": base_age_band_id,
+                "updated_at_utc": custom_profile.get("updated_at_utc") or utc_now_iso(),
+                "last_saved_mode": custom_profile.get("last_saved_mode")
+                if custom_profile.get("last_saved_mode") in {"simple", "advanced"}
+                else "simple",
+                "custom_values": normalize_routine_values(
+                    schedule_values_from_band(base_band),
+                    custom_profile.get("custom_values"),
+                ),
+            }
+        else:
+            state["routine_mode"] = "default_auto"
+
+    if state["routine_mode"] == "default_auto":
+        state["custom_profile"] = None
+
+    return state
+
+
+def save_routine_profile_state(routine_profile_state: Dict[str, Any]) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO settings (key, value)
+            VALUES ('routine_profile_state', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (json.dumps(routine_profile_state),),
+        )
+
+
+def validate_custom_routine_values(custom_values: Any) -> tuple[Optional[Dict[str, int]], Optional[str]]:
+    if not isinstance(custom_values, dict):
+        return None, "Custom routine values are required"
+    normalized: Dict[str, int] = {}
+    for field in ROUTINE_FIELDS:
+        if field not in custom_values:
+            return None, f"Missing routine field: {field}"
+        try:
+            value = int(custom_values[field])
+        except (TypeError, ValueError):
+            return None, f"Invalid routine field: {field}"
+        if value < 1 or value > 1440:
+            return None, f"Routine field out of range: {field}"
+        normalized[field] = value
+    for due_key, overdue_key in ROUTINE_VALUE_PAIRS:
+        if normalized[due_key] >= normalized[overdue_key]:
+            return None, f"{due_key} must be less than {overdue_key}"
+    return normalized, None
+
+
+def age_band_summary(age_weeks: float, band: Dict[str, Any]) -> str:
+    return f"At {round(age_weeks, 1)} weeks, the {band['label']} routine is the current recommendation."
 
 
 def sort_routine_blocks(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -828,8 +1030,7 @@ def get_age_weeks(settings: Dict[str, Any], now: datetime) -> Optional[float]:
     return days / 7.0
 
 
-def get_schedule(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
-    band = resolve_age_band(settings, now)
+def build_schedule_from_band(band: Dict[str, Any], settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     overnight = is_overnight(now, settings["timezone_offset_minutes"])
     schedule = {
         "age_band_id": band["id"],
@@ -864,6 +1065,111 @@ def get_schedule(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
         "routine_summary": [],
     }
     return merge_schedule_profile(schedule, settings.get("schedule_profile") or {})
+
+
+def build_routine_proposal(current_band: Dict[str, Any], current_values: Dict[str, int], recommended_band: Dict[str, Any]) -> Dict[str, Any]:
+    recommended_values = schedule_values_from_band(recommended_band)
+    diff_items = []
+    for field in ROUTINE_FIELDS:
+        if current_values[field] == recommended_values[field]:
+            continue
+        diff_items.append(
+            {
+                "field_id": field,
+                "label": ROUTINE_FIELD_LABELS[field],
+                "current_value": current_values[field],
+                "recommended_value": recommended_values[field],
+                "change_note": f"Typical {recommended_band['label']} guidance uses {recommended_values[field]} minutes here.",
+            }
+        )
+    return {
+        "proposal_id": f"{current_band['id']}-to-{recommended_band['id']}",
+        "status": "pending",
+        "current_custom_age_band_id": current_band["id"],
+        "recommended_age_band_id": recommended_band["id"],
+        "headline": f"Your puppy is now in the {recommended_band['label']} stage",
+        "summary_text": f"We'd usually adjust the routine toward the {recommended_band['label']} defaults at this age.",
+        "diff_items": diff_items,
+        "reviewed_at_utc": None,
+    }
+
+
+def resolve_routine_profile(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    age_weeks = get_age_weeks(settings, now)
+    if age_weeks is None:
+        age_weeks = 12.0
+
+    recommended_band = resolve_age_band(settings, now)
+    recommended_schedule = build_schedule_from_band(recommended_band, settings, now)
+    recommended_values = schedule_values_from_band(recommended_band)
+    routine_profile_state = normalize_routine_profile_state(settings.get("routine_profile_state"))
+    custom_profile = routine_profile_state.get("custom_profile")
+
+    if routine_profile_state["routine_mode"] == "custom_manual" and custom_profile:
+        current_band = get_schedule_band_by_id(custom_profile["base_age_band_id"]) or recommended_band
+        current_band["age_weeks"] = round(age_weeks, 1)
+        schedule = build_schedule_from_band(current_band, settings, now)
+        effective_values = normalize_routine_values(
+            schedule_values_from_band(current_band),
+            custom_profile.get("custom_values"),
+        )
+        profile_source = "custom_saved"
+        effective_age_band_id = current_band["id"]
+        effective_age_label = current_band["label"]
+        last_saved_mode = custom_profile.get("last_saved_mode")
+    else:
+        current_band = recommended_band
+        schedule = recommended_schedule
+        effective_values = recommended_values.copy()
+        profile_source = "default_current_age"
+        effective_age_band_id = recommended_band["id"]
+        effective_age_label = recommended_band["label"]
+        last_saved_mode = None
+
+    for field_id, value in effective_values.items():
+        if field_id == "sleep_default":
+            schedule["day_sleep_minutes"] = value
+            if not schedule["is_overnight"]:
+                schedule["default_sleep_minutes"] = value
+            schedule["sleep_default"] = value
+        else:
+            schedule[field_id] = value
+    if schedule["is_overnight"]:
+        schedule["default_sleep_minutes"] = schedule["night_sleep_minutes"]
+    else:
+        schedule["default_sleep_minutes"] = schedule["day_sleep_minutes"]
+    schedule["age_band_id"] = effective_age_band_id
+    schedule["age_label"] = effective_age_label
+    schedule["age_weeks"] = round(age_weeks, 1)
+    schedule["routine_mode"] = routine_profile_state["routine_mode"]
+    schedule["profile_source"] = profile_source
+    schedule["effective_age_band_id"] = effective_age_band_id
+    schedule["recommended_age_band_id"] = recommended_band["id"]
+    schedule["recommended_age_label"] = recommended_band["label"]
+    schedule["defaults"] = recommended_values
+    schedule["last_saved_mode"] = last_saved_mode
+
+    routine_proposal = None
+    if (
+        routine_profile_state["routine_mode"] == "custom_manual"
+        and current_band["id"] != recommended_band["id"]
+        and routine_profile_state.get("last_reviewed_recommendation_band_id") != recommended_band["id"]
+    ):
+        routine_proposal = build_routine_proposal(current_band, effective_values, recommended_band)
+
+    return {
+        "age_weeks": age_weeks,
+        "recommended_band": recommended_band,
+        "current_band": current_band,
+        "schedule": schedule,
+        "routine_profile_state": routine_profile_state,
+        "routine_proposal": routine_proposal,
+        "summary_text": age_band_summary(age_weeks, recommended_band),
+    }
+
+
+def get_schedule(settings: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    return resolve_routine_profile(settings, now)["schedule"]
 
 
 def find_last(events_desc: List[Dict[str, Any]], activity: str) -> Optional[Dict[str, Any]]:
@@ -989,6 +1295,193 @@ def local_time_label(iso: Optional[str], offset_minutes: int) -> str:
     if os.name == "nt":
         return local.strftime("%#I:%M %p")
     return local.strftime("%-I:%M %p")
+
+
+def routine_time_window_label(now: datetime, start_minutes: int, end_minutes: int, offset_minutes: int) -> str:
+    if start_minutes <= 0 and end_minutes <= 0:
+        return "Due now"
+    start_label = local_time_label((now + timedelta(minutes=max(0, start_minutes))).isoformat(), offset_minutes)
+    end_label = local_time_label((now + timedelta(minutes=max(0, end_minutes))).isoformat(), offset_minutes)
+    if start_minutes <= 0:
+        return f"Any time now to about {end_label}"
+    return f"Around {start_label} to {end_label}"
+
+
+def build_routine_item(
+    item_id: str,
+    kind: str,
+    phase: str,
+    title: str,
+    start_minutes: int,
+    end_minutes: int,
+    explanation: str,
+    now: datetime,
+    offset_minutes: int,
+    emphasis: str = "normal",
+) -> Dict[str, Any]:
+    return {
+        "id": item_id,
+        "kind": kind,
+        "phase": phase,
+        "title": title,
+        "window_start_utc": (now + timedelta(minutes=max(0, start_minutes))).isoformat(),
+        "window_end_utc": (now + timedelta(minutes=max(0, end_minutes))).isoformat(),
+        "time_label": routine_time_window_label(now, start_minutes, end_minutes, offset_minutes),
+        "explanation": explanation,
+        "emphasis": emphasis,
+    }
+
+
+def build_routine_overview(
+    settings: Dict[str, Any],
+    resolved_profile: Dict[str, Any],
+    live: Dict[str, Any],
+    now: datetime,
+) -> Dict[str, Any]:
+    schedule = resolved_profile["schedule"]
+    proposal = resolved_profile["routine_proposal"]
+    offset_minutes = settings["timezone_offset_minutes"]
+    has_recent_events = any(
+        event_value is not None for event_value in [live["since_pee_minutes"], live["since_food_minutes"], live["since_awake_minutes"]]
+    )
+
+    if live["sleep_block"] and live["sleep_block"]["is_sleeping_now"]:
+        current_block = {
+            "id": "sleep-now",
+            "kind": "sleep",
+            "phase": "now",
+            "title": "Nap time",
+            "window_start_utc": live["sleep_block"]["start_time_utc"],
+            "window_end_utc": live["sleep_block"]["projected_end_time_utc"],
+            "time_label": f"Wake by {local_time_label(live['sleep_block']['projected_end_time_utc'], offset_minutes)}",
+            "explanation": "Sleep starts immediately when logged and ends early if wake or another activity is logged.",
+            "emphasis": "active",
+        }
+    else:
+        awake_minutes = live["since_awake_minutes"] or 0
+        current_block = {
+            "id": "awake-now",
+            "kind": "awake",
+            "phase": "now",
+            "title": "Awake stretch",
+            "window_start_utc": now.isoformat(),
+            "window_end_utc": (now + timedelta(minutes=max(0, schedule["awake_due"] - awake_minutes))).isoformat(),
+            "time_label": routine_time_window_label(now, 0, max(0, schedule["awake_due"] - awake_minutes), offset_minutes),
+            "explanation": "Recent logs can pull the next potty or nap window forward even when the saved routine stays the same.",
+            "emphasis": "active",
+        }
+
+    candidate_specs = [
+        ("potty", "Potty window", live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"], "Built from time since the last pee."),
+        ("food", "Meal window", live["since_food_minutes"], schedule["food_due"], schedule["food_overdue"], "Built from time since the last meal."),
+        ("water", "Water check", live["since_water_minutes"], schedule["water_due"], schedule["water_overdue"], "Built from time since the last water log."),
+        ("sleep", "Nap window", live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"], "Built from the current awake stretch."),
+    ]
+    candidates = []
+    for kind, title, minutes_since_value, due_value, overdue_value, explanation in candidate_specs:
+        since_value = minutes_since_value or 0
+        start_minutes = max(0, due_value - since_value)
+        end_minutes = max(0, overdue_value - since_value)
+        candidates.append(
+            build_routine_item(
+                item_id=f"{kind}-{title.lower().replace(' ', '-')}",
+                kind=kind,
+                phase="next",
+                title=title,
+                start_minutes=start_minutes,
+                end_minutes=end_minutes,
+                explanation=explanation,
+                now=now,
+                offset_minutes=offset_minutes,
+            )
+        )
+    candidates.sort(key=lambda item: parse_iso(item["window_start_utc"]) or now)
+    next_block = candidates[0] if candidates else None
+    agenda = []
+    for index, item in enumerate(candidates[:4]):
+        agenda.append({**item, "phase": "next" if index == 0 else "later"})
+
+    routine_profile_state = resolved_profile["routine_profile_state"]
+    proposal_status = "pending" if proposal else "none"
+    if proposal_status == "none":
+        if (
+            routine_profile_state.get("last_reviewed_recommendation_band_id") == schedule["recommended_age_band_id"]
+            and routine_profile_state.get("last_proposal_action") in {"accepted", "rejected"}
+        ):
+            proposal_status = routine_profile_state["last_proposal_action"]
+    if schedule["routine_mode"] == "default_auto":
+        source_badge = f"Auto-following {schedule['recommended_age_label']} routine"
+    else:
+        source_badge = f"Custom routine from {schedule['age_label']}"
+    if proposal:
+        source_detail = proposal["summary_text"]
+    elif has_recent_events:
+        source_detail = "Recent logs shift the next window without rewriting the saved routine."
+    else:
+        source_detail = "No recent logs yet, so the routine is showing the age-based plan."
+
+    return {
+        "headline": "Today's rhythm",
+        "summary_text": resolved_profile["summary_text"],
+        "source_state": {
+            "profile_source": schedule["profile_source"],
+            "routine_mode": schedule["routine_mode"],
+            "guidance_shifted_by_recent_events": has_recent_events,
+            "source_badge": source_badge,
+            "source_detail": source_detail,
+            "proposal_status": proposal_status,
+        },
+        "current_block": current_block,
+        "next_block": next_block,
+        "agenda": agenda,
+        "plain_language_defaults": [
+            f"Potty usually becomes due around every {schedule['pee_due']} to {schedule['pee_overdue']} minutes.",
+            f"Awake stretches usually land around {schedule['awake_due']} to {schedule['awake_overdue']} minutes.",
+            f"Quick sleep logs use a {schedule['sleep_default']}-minute nap target.",
+        ],
+    }
+
+
+def build_routine_editor_state(schedule: Dict[str, Any]) -> Dict[str, Any]:
+    simple_fields = []
+    for group in SIMPLE_ROUTINE_GROUPS:
+        simple_fields.append(
+            {
+                "id": group["id"],
+                "label": group["label"],
+                "description": group["description"],
+                "fields": [
+                    {
+                        "id": field_id,
+                        "label": ROUTINE_FIELD_LABELS[field_id],
+                        "unit": "minutes",
+                        "default_value": schedule["defaults"][field_id],
+                        "effective_value": schedule[field_id],
+                    }
+                    for field_id in group["fields"]
+                ],
+            }
+        )
+    advanced_fields = [
+        {
+            "id": field_id,
+            "label": ROUTINE_FIELD_LABELS[field_id],
+            "unit": "minutes",
+            "default_value": schedule["defaults"][field_id],
+            "effective_value": schedule[field_id],
+        }
+        for field_id in ROUTINE_FIELDS
+    ]
+    return {
+        "active_age_band_id": schedule["effective_age_band_id"],
+        "active_age_label": schedule["age_label"],
+        "routine_mode": schedule["routine_mode"],
+        "default_values": schedule["defaults"],
+        "effective_values": {field_id: schedule[field_id] for field_id in ROUTINE_FIELDS},
+        "last_saved_mode": schedule["last_saved_mode"],
+        "simple_fields": simple_fields,
+        "advanced_fields": advanced_fields,
+    }
 
 
 def build_advisory(
@@ -1310,6 +1803,7 @@ def apply_advisory_overrides(candidates: List[Dict[str, Any]], settings: Dict[st
 
 
 def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
+    resolved_profile = resolve_routine_profile(settings, now)
     schedule = get_schedule(settings, now)
     sleep_block = latest_sleep_block(events_desc, settings)
 
@@ -1337,6 +1831,8 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
     advisories.sort(key=lambda item: item["priority"])
     primary_advisory = advisories[0]
     logic_breakdown = build_logic_breakdown(events_desc, schedule, live, now, primary_advisory)
+    routine_overview = build_routine_overview(settings, resolved_profile, live, now)
+    routine_editor = build_routine_editor_state(schedule)
     sleep_projection = {
         "recommended_check_at_utc": sleep_block["recommended_check_time_utc"] if sleep_block else None,
         "recommended_check_reason": sleep_block["recommended_check_reason"] if sleep_block else "Log sleep to project the next guidance checkpoint.",
@@ -1355,6 +1851,9 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
             "active_age_band_id": schedule["age_band_id"],
             "display_label": schedule["age_label"],
         },
+        "routine_overview": routine_overview,
+        "routine_editor": routine_editor,
+        "routine_proposal": resolved_profile["routine_proposal"],
         "sleep_projection": sleep_projection,
         "needs_now": {"title": primary_advisory["title"], "reason": primary_advisory["reason"]},
     }
@@ -1512,6 +2011,78 @@ async def api_advisory_action(action: AdvisoryActionIn) -> JSONResponse:
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
     return JSONResponse(payload)
+
+
+@app.put("/api/routine-profile")
+async def api_save_routine_profile(routine_profile: RoutineProfileIn) -> JSONResponse:
+    if routine_profile.save_mode not in {"simple", "advanced"}:
+        return JSONResponse({"error": "Invalid save mode"}, status_code=400, headers=NO_CACHE_HEADERS)
+    settings = get_settings()
+    base_band = get_schedule_band_by_id(routine_profile.base_age_band_id)
+    if not base_band:
+        return JSONResponse({"error": "Unknown age band"}, status_code=400, headers=NO_CACHE_HEADERS)
+    custom_values, error = validate_custom_routine_values(routine_profile.custom_values)
+    if error:
+        return JSONResponse({"error": error}, status_code=400, headers=NO_CACHE_HEADERS)
+    resolved_profile = resolve_routine_profile(settings, utc_now())
+    routine_profile_state = normalize_routine_profile_state(settings.get("routine_profile_state"))
+    routine_profile_state["routine_mode"] = "custom_manual"
+    routine_profile_state["last_reviewed_recommendation_band_id"] = resolved_profile["recommended_band"]["id"]
+    routine_profile_state["last_proposal_action"] = None
+    routine_profile_state["custom_profile"] = {
+        "base_age_band_id": base_band["id"],
+        "updated_at_utc": utc_now_iso(),
+        "last_saved_mode": routine_profile.save_mode,
+        "custom_values": custom_values,
+    }
+    save_routine_profile_state(routine_profile_state)
+    payload = dashboard_payload()
+    await manager.broadcast_json(payload)
+    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
+
+
+@app.delete("/api/routine-profile")
+async def api_reset_routine_profile() -> JSONResponse:
+    settings = get_settings()
+    recommended_band = resolve_routine_profile(settings, utc_now())["recommended_band"]
+    routine_profile_state = {
+        "version": 1,
+        "routine_mode": "default_auto",
+        "last_reviewed_recommendation_band_id": recommended_band["id"],
+        "last_proposal_action": None,
+        "custom_profile": None,
+    }
+    save_routine_profile_state(routine_profile_state)
+    payload = dashboard_payload()
+    await manager.broadcast_json(payload)
+    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/routine-proposal/{proposal_id}/decision")
+async def api_routine_proposal_decision(proposal_id: str, decision: RoutineProposalDecisionIn) -> JSONResponse:
+    if decision.action not in {"accept", "reject"}:
+        return JSONResponse({"error": "Invalid proposal action"}, status_code=400, headers=NO_CACHE_HEADERS)
+    settings = get_settings()
+    resolved_profile = resolve_routine_profile(settings, utc_now())
+    proposal = resolved_profile["routine_proposal"]
+    if not proposal or proposal["proposal_id"] != proposal_id:
+        return JSONResponse({"error": "Routine proposal not found"}, status_code=404, headers=NO_CACHE_HEADERS)
+    routine_profile_state = normalize_routine_profile_state(settings.get("routine_profile_state"))
+    if decision.action == "accept":
+        routine_profile_state = {
+            "version": 1,
+            "routine_mode": "default_auto",
+            "last_reviewed_recommendation_band_id": resolved_profile["recommended_band"]["id"],
+            "last_proposal_action": "accepted",
+            "custom_profile": None,
+        }
+    else:
+        routine_profile_state["last_reviewed_recommendation_band_id"] = resolved_profile["recommended_band"]["id"]
+        routine_profile_state["last_proposal_action"] = "rejected"
+    save_routine_profile_state(routine_profile_state)
+    payload = dashboard_payload()
+    await manager.broadcast_json(payload)
+    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
 
 
 @app.websocket("/ws")

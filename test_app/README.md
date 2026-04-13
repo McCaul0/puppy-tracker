@@ -71,7 +71,7 @@ Modify events after the fact without slowing down the default quick-log flow.
 
 ## 1.8 Schedule Logic
 
-Shows timing rules and thresholds.
+Shows the expected routine as a friendly day overview, with simple and advanced editing paths.
 
 ---
 
@@ -81,13 +81,21 @@ Basic configuration.
 
 ---
 
-## 1.10 Version Indicator
+## 1.10 Expected Routine Review
+
+- Default routines should auto-follow the puppy's current age recommendation
+- Custom routines should stay stable until the user accepts a newer recommendation
+- Age-based recommendation changes should be reviewable with explicit accept or reject actions
+
+---
+
+## 1.11 Version Indicator
 
 Displayed near Live status when present.
 
 ---
 
-## 1.11 Elimination Events
+## 1.12 Elimination Events
 
 Accident meaning belongs on pee or poop events, not as a standalone quick action.
 

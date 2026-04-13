@@ -82,3 +82,19 @@ Why:
 
 - The logging flow still needs a fast way to mark accidents.
 - Keeping accident status on the elimination event preserves potty history while removing the deprecated separate activity.
+
+## 2026-04-11
+
+### Routine profile aging model
+
+Decision:
+
+- Default-following routines should move automatically with the puppy's current age band.
+- Saved custom routines should stay fixed until the user explicitly accepts a newer recommendation.
+- Age-upgrade prompts must support both accept and reject outcomes.
+
+Why:
+
+- Auto-advancing defaults keep the common case effortless.
+- Custom edits are a deliberate choice and should not be silently overwritten.
+- Rejecting a proposal needs to be a first-class outcome so the app does not keep nagging with the same recommendation.

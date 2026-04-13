@@ -2,6 +2,11 @@
 
 This folder supports the `test_app` release candidate and the process around promoting it to live.
 
+Current test focus:
+
+- simplified `Expected routine` overview and editing flow
+- explicit age-upgrade proposal review for custom routines
+
 Latest promotion:
 
 - The current live app was promoted from `test_app` on `2026-03-29`.

@@ -57,6 +57,10 @@ Known keys:
 - `puppy_birth_date`
   Stored as ISO date string or empty string.
   Example: `2026-01-15`
+- `routine_profile_state`
+  Stored as JSON object describing whether the routine is auto-following the current age band or
+  using a saved custom routine.
+  Example: `{"version":1,"routine_mode":"default_auto","last_reviewed_recommendation_band_id":"10_to_12_weeks","last_proposal_action":null,"custom_profile":null}`
 
 Normalization on save/read:
 
@@ -196,6 +200,36 @@ Validation:
 - `household_members` item count 1-10 before normalization
 - `puppy_birth_date` must be empty or ISO date
 
+### `PUT /api/routine-profile`
+
+Saves a simplified routine profile.
+
+Accepted body:
+
+- `base_age_band_id: string`
+- `save_mode: "simple" | "advanced"`
+- `custom_values: object`
+
+Validation:
+
+- `base_age_band_id` must match a known age band
+- every routine field must be present
+- every routine field must be numeric and between `1` and `1440`
+- every `*_due` value must stay below its matching `*_overdue` value
+
+### `DELETE /api/routine-profile`
+
+Resets the routine back to automatic age-following behavior.
+
+### `POST /api/routine-proposal/{proposal_id}/decision`
+
+Accepted body:
+
+- `action: "accept" | "reject"`
+
+Accepting returns the routine to auto-following mode for the current age band.
+Rejecting keeps the saved custom routine and suppresses the current recommendation prompt.
+
 ## Derived Behavior Contract
 
 These values are not stored directly; they are derived from settings plus recent events:
@@ -208,6 +242,9 @@ These values are not stored directly; they are derived from settings plus recent
 - `sleep_block`
 - `tiles`
 - `schedule`
+- `routine_overview`
+- `routine_editor`
+- `routine_proposal`
 - `needs_now`
 
 Important derived rules:

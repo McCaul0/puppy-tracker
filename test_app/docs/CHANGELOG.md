@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-04-11
+
+- Replaced the dense schedule threshold card with an `Expected routine` overview that explains `Now`, `Next`, and `Later today`.
+- Added routine profile state so default-following schedules auto-advance by age while custom routines remain stable.
+- Added explicit age-upgrade proposals with `Accept recommendation` and `Keep my routine` decisions.
+- Added routine profile endpoints and release-doc coverage for the new routine editing flow.
+
 ### 2026-03-29
 
 - Promoted the current `v14.2 test` candidate into the live/root app.

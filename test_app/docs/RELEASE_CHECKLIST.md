@@ -40,6 +40,8 @@ If that assumption changes, update this checklist first.
 - Log `food`.
 - Log `sleep`.
 - Confirm the banner and tiles update immediately.
+- Open `Expected routine` and confirm the overview loads.
+- If practical, verify a custom routine does not auto-change across an age-band transition without an explicit proposal decision.
 - Edit the most recent event.
 - Delete a non-critical recent event if safe to do so.
 - Open the app on a second device and confirm websocket sync is working.
