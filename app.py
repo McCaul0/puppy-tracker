@@ -23,6 +23,19 @@ DEFAULT_TZ_OFFSET_MINUTES = int(os.environ.get("PUPPY_TZ_OFFSET_MINUTES", "-240"
 DEFAULT_ACTIVITIES = ["pee", "poop", "food", "water", "sleep", "wake", "play"]
 DEFAULT_HOUSEHOLD_MEMBERS = ["McCaul", "Jess"]
 REST_ACTIVITIES = {"sleep"}
+STATUS_TILE_ORDER = ["pee", "poop", "food", "water", "awake"]
+TAPPABLE_TILE_ACTIVITIES = {"pee", "poop", "food", "water"}
+SECONDARY_QUICK_ACTION_ORDER = ["play", "sleep", "wake"]
+ACTIVITY_LABELS = {
+    "pee": "Pee",
+    "poop": "Poop",
+    "food": "Food",
+    "water": "Water",
+    "awake": "Awake",
+    "play": "Play",
+    "sleep": "Sleep",
+    "wake": "Wake",
+}
 SCHEDULE_PROFILE_KEY = "schedule_profile"
 ADVISORY_OVERRIDES_KEY = "advisory_overrides"
 DEFAULT_DEFER_MINUTES = 20
@@ -1020,6 +1033,14 @@ def human_minutes_short(minutes: Optional[int]) -> str:
     return f"{days}d {remaining_hours}h" if remaining_hours else f"{days}d"
 
 
+def human_ago(minutes: Optional[int]) -> str:
+    if minutes is None:
+        return "No entries yet"
+    if minutes < 1:
+        return "just now"
+    return f"{human_minutes_short(minutes)} ago"
+
+
 def get_age_weeks(settings: Dict[str, Any], now: datetime) -> Optional[float]:
     birth = parse_date(settings.get("puppy_birth_date"))
     if not birth:
@@ -1285,6 +1306,38 @@ def urgency(value: Optional[int], due: int, overdue: int) -> str:
     if value >= due:
         return "soon"
     return "ok"
+
+
+def urgency_label(value: str) -> str:
+    return {
+        "overdue": "Overdue",
+        "soon": "Due soon",
+        "unknown": "No data",
+        "ok": "On track",
+    }.get(value, "On track")
+
+
+def build_status_tile(
+    key: str,
+    minutes: Optional[int],
+    urgency_value: str,
+    *,
+    is_tappable: bool,
+    readonly_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    tap_activity = key if is_tappable else None
+    return {
+        "key": key,
+        "label": ACTIVITY_LABELS[key],
+        "minutes": minutes,
+        "display_value": human_ago(minutes),
+        "urgency": urgency_value,
+        "urgency_label": urgency_label(urgency_value),
+        "is_tappable": is_tappable,
+        "tap_activity": tap_activity,
+        "tap_hint": "Tap to log" if is_tappable else None,
+        "readonly_reason": readonly_reason,
+    }
 
 
 def local_time_label(iso: Optional[str], offset_minutes: int) -> str:
@@ -1818,14 +1871,45 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         "sleep_block": sleep_block,
     }
 
+    supported_activities = set(settings["activities"])
     tiles = {
-        "pee": {"minutes": live["since_pee_minutes"], "urgency": urgency(live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"])},
-        "poop": {"minutes": live["since_poop_minutes"], "urgency": urgency(live["since_poop_minutes"], schedule["poop_due"], schedule["poop_overdue"])},
-        "food": {"minutes": live["since_food_minutes"], "urgency": urgency(live["since_food_minutes"], schedule["food_due"], schedule["food_overdue"])},
-        "water": {"minutes": live["since_water_minutes"], "urgency": urgency(live["since_water_minutes"], schedule["water_due"], schedule["water_overdue"])},
-        "awake": {"minutes": live["since_awake_minutes"], "urgency": urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"])},
-        "sleep": {"minutes": sleep_block["actual_duration_minutes"] if sleep_block else None, "urgency": "ok" if sleep_block and sleep_block["is_sleeping_now"] else "unknown"},
+        "pee": build_status_tile(
+            "pee",
+            live["since_pee_minutes"],
+            urgency(live["since_pee_minutes"], schedule["pee_due"], schedule["pee_overdue"]),
+            is_tappable="pee" in supported_activities,
+        ),
+        "poop": build_status_tile(
+            "poop",
+            live["since_poop_minutes"],
+            urgency(live["since_poop_minutes"], schedule["poop_due"], schedule["poop_overdue"]),
+            is_tappable="poop" in supported_activities,
+        ),
+        "food": build_status_tile(
+            "food",
+            live["since_food_minutes"],
+            urgency(live["since_food_minutes"], schedule["food_due"], schedule["food_overdue"]),
+            is_tappable="food" in supported_activities,
+        ),
+        "water": build_status_tile(
+            "water",
+            live["since_water_minutes"],
+            urgency(live["since_water_minutes"], schedule["water_due"], schedule["water_overdue"]),
+            is_tappable="water" in supported_activities,
+        ),
+        "awake": build_status_tile(
+            "awake",
+            live["since_awake_minutes"],
+            urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"]),
+            is_tappable=False,
+            readonly_reason="Derived state",
+        ),
     }
+    secondary_quick_actions = [
+        {"activity": activity, "label": ACTIVITY_LABELS[activity]}
+        for activity in SECONDARY_QUICK_ACTION_ORDER
+        if activity in supported_activities
+    ]
 
     advisories = apply_advisory_overrides(build_advisory_candidates(events_desc, settings, schedule, live, now), settings, now)
     advisories.sort(key=lambda item: item["priority"])
@@ -1842,6 +1926,7 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
     return {
         **live,
         "tiles": tiles,
+        "secondary_quick_actions": secondary_quick_actions,
         "schedule": schedule,
         "primary_advisory": primary_advisory,
         "active_advisories": advisories,
@@ -2149,10 +2234,15 @@ HTML = r'''
     .banner-title{font-size:1.05rem;font-weight:800}
     .banner-reason{color:#c7dcff;margin-top:4px;font-size:.95rem}
     .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
-    .tile{border-radius:16px;padding:12px;border:1px solid var(--border)}
+    .tile{border-radius:16px;padding:12px;border:1px solid var(--border);position:relative;min-height:118px;display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left}
     .tile .label{font-size:.8rem;font-weight:700;letter-spacing:.02em}
     .tile .value{font-size:1.35rem;font-weight:800;margin-top:6px}
     .tile .meta{font-size:.78rem;margin-top:6px;opacity:.9}
+    .tile-hint{margin-top:auto;padding-top:10px;font-size:.72rem;font-weight:700;letter-spacing:.01em;opacity:.92}
+    .tile-button{appearance:none;cursor:pointer}
+    .tile-button:focus-visible{outline:2px solid #cfe0ff;outline-offset:2px}
+    .tile-button.pending,.tile-button[disabled]{cursor:wait;opacity:.78}
+    .tile-readonly{cursor:default}
     .tile.on-track{background:var(--green-bg);border-color:var(--green-border);color:var(--green-text)}
     .tile.soon{background:var(--yellow-bg);border-color:var(--yellow-border);color:var(--yellow-text)}
     .tile.overdue{background:var(--red-bg);border-color:var(--red-border);color:var(--red-text)}
@@ -2246,7 +2336,7 @@ HTML = r'''
 
     <div class="card" style="margin-bottom:14px">
       <div class="row" style="margin-bottom:10px">
-        <div class="section-title">Log an activity</div>
+        <div class="section-title">Other quick actions</div>
         <select id="device-actor" style="max-width:10rem"></select>
       </div>
       <div id="quick-actions" class="actions"></div>
@@ -2340,6 +2430,7 @@ HTML = r'''
     let ws = null;
     let lastSavedId = null;
     let currentLogDayIndex = 0;
+    const pendingActivities = new Set();
     const DEVICE_ACTOR_KEY = 'puppy_tracker_device_actor';
     const WEEKDAY_IDS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const ROUTINE_KIND_OPTIONS = [
@@ -2521,21 +2612,38 @@ HTML = r'''
       return `tile ${urgencyClass}`;
     }
 
+    function tileAriaLabel(tile, isPending) {
+      const parts = [tile.label, tile.display_value, tile.urgency_label];
+      if (isPending) parts.push('Logging now');
+      else if (tile.is_tappable) parts.push(`Tap to log ${tile.label.toLowerCase()}`);
+      else if (tile.readonly_reason) parts.push(tile.readonly_reason);
+      return parts.join('. ');
+    }
+
     function renderStats() {
-      const live = state.live_state;
       const order = ['pee', 'poop', 'food', 'water', 'awake'];
-      const labels = {pee:'Pee', poop:'Poop', food:'Food', water:'Water', awake:'Awake'};
       els.quickStats.innerHTML = order.map(key => {
-        const t = live.tiles[key];
-        const meta = statusMeta(key, live);
-        const urgency = t ? t.urgency : 'unknown';
-        const urgencyLabel = urgency === 'overdue' ? 'Overdue' : urgency === 'soon' ? 'Due soon' : urgency === 'unknown' ? 'No data' : 'On track';
+        const tile = state.live_state.tiles[key];
+        const urgency = tile ? tile.urgency : 'unknown';
         const extraClass = key === 'awake' ? ' awake-wide' : '';
+        const isPending = Boolean(tile?.tap_activity) && pendingActivities.has(tile.tap_activity);
+        const hint = isPending ? 'Logging...' : tile?.tap_hint;
+        const body = `
+          <div class="label">${escapeHtml(tile?.label || key)}</div>
+          <div class="value">${escapeHtml(tile?.display_value || 'No entries yet')}</div>
+          <div class="meta"><strong>${escapeHtml(tile?.urgency_label || 'On track')}</strong></div>
+          ${hint ? `<div class="tile-hint">${escapeHtml(hint)}</div>` : ''}
+        `;
+        if (tile?.is_tappable && tile.tap_activity) {
+          return `
+            <button class="${tileClass(key, urgency)} tile-button${isPending ? ' pending' : ''}${extraClass}" type="button" ${isPending ? 'disabled' : ''} onclick="quickLog('${tile.tap_activity}', 'tile')" aria-label="${escapeHtml(tileAriaLabel(tile, isPending))}">
+              ${body}
+            </button>
+          `;
+        }
         return `
-          <div class="${tileClass(key, urgency)}${extraClass}">
-            <div class="label">${labels[key]}</div>
-            <div class="value">${escapeHtml(meta.value)}</div>
-            <div class="meta"><strong>${urgencyLabel}</strong></div>
+          <div class="${tileClass(key, urgency)} tile-readonly${extraClass}" aria-label="${escapeHtml(tileAriaLabel(tile, false))}">
+            ${body}
           </div>
         `;
       }).join('');
@@ -2549,23 +2657,11 @@ HTML = r'''
       els.needsReason.textContent = `${advisory.reason}${driverText}${statusText}`;
     }
 
-    function quickButtons() {
-      return [
-        { key: 'pee', label: 'Pee' },
-        { key: 'poop', label: 'Poop' },
-        { key: 'food', label: 'Food' },
-        { key: 'water', label: 'Water' },
-        { key: 'play', label: 'Play' },
-        { key: 'sleep', label: 'Sleep' },
-        { key: 'wake', label: 'Wake' },
-      ];
-    }
-
     function renderActions() {
-      els.quickActions.innerHTML = quickButtons().map(item => `
-        <button class="btn btn-blue" type="button" onclick="quickLog('${item.key}')">${item.label}</button>
+      const actions = state.live_state.secondary_quick_actions || [];
+      els.quickActions.innerHTML = actions.map(item => `
+        <button class="btn btn-blue" type="button" ${pendingActivities.has(item.activity) ? 'disabled' : ''} onclick="quickLog('${item.activity}', 'quick-action')">${item.label}</button>
       `).join('');
-      els.quickAccident.checked = false;
     }
 
     function describeSleepEvent(event) {
@@ -3002,30 +3098,47 @@ HTML = r'''
       renderAll();
     }
 
-    async function quickLog(activity) {
+    async function quickLog(activity, source = 'quick-action') {
+      if (pendingActivities.has(activity)) return;
+      pendingActivities.add(activity);
+      renderStats();
+      renderActions();
       const actor = getDeviceActor() || state.settings.household_members[0] || 'McCaul';
       const payload = { activity, actor, event_time_utc: new Date().toISOString() };
       if (canMarkAccident(activity)) payload.is_accident = els.quickAccident.checked;
       if (activity === 'play') payload.duration_minutes = 20;
-      const res = await fetch('/api/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Could not save event');
-        return;
-      }
-      state = data;
-      currentLogDayIndex = 0;
-      lastSavedId = state.events[0]?.id || null;
-      if (canMarkAccident(activity)) els.quickAccident.checked = false;
-      renderAll();
-      if (activity === 'sleep') {
-        showToast(`Sleep logged. ${state.live_state.sleep_projection.recommended_check_reason}`);
-      } else {
-        showToast(`${activity.charAt(0).toUpperCase() + activity.slice(1)} logged`);
+      try {
+        const res = await fetch('/api/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        pendingActivities.delete(activity);
+        if (!res.ok) {
+          renderStats();
+          renderActions();
+          showToast(data.error || `Could not log ${activity}`);
+          return;
+        }
+        state = data;
+        currentLogDayIndex = 0;
+        lastSavedId = state.events[0]?.id || null;
+        if (canMarkAccident(activity)) els.quickAccident.checked = false;
+        renderAll();
+        if (activity === 'sleep') {
+          showToast(`Sleep logged. ${state.live_state.sleep_projection.recommended_check_reason}`);
+        } else if (source === 'tile') {
+          showToast(`${activity.charAt(0).toUpperCase() + activity.slice(1)} logged from tile`);
+        } else {
+          showToast(`${activity.charAt(0).toUpperCase() + activity.slice(1)} logged`);
+        }
+      } catch (error) {
+        console.error(error);
+        pendingActivities.delete(activity);
+        renderStats();
+        renderActions();
+        showToast(`Could not log ${activity}`);
       }
     }
     window.quickLog = quickLog;
