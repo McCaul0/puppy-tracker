@@ -98,3 +98,19 @@ Why:
 - Auto-advancing defaults keep the common case effortless.
 - Custom edits are a deliberate choice and should not be silently overwritten.
 - Rejecting a proposal needs to be a first-class outcome so the app does not keep nagging with the same recommendation.
+
+## 2026-04-13
+
+### Tap-to-log status tile scope
+
+Decision:
+
+- Make `pee`, `poop`, `food`, and `water` status tiles the primary one-tap logging surface.
+- Keep `awake` read-only because it is derived state, not a directly logged event.
+- Leave `play`, `sleep`, and `wake` on a smaller secondary quick-action surface.
+
+Why:
+
+- These four tiles have an obvious, safe event mapping.
+- Derived state should stay explanatory rather than pretending it can be logged directly.
+- Shrinking the separate action strip keeps the dashboard faster to scan instead of adding another busy control surface.

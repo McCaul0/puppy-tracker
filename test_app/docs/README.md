@@ -6,6 +6,8 @@ Current test focus:
 
 - simplified `Expected routine` overview and editing flow
 - explicit age-upgrade proposal review for custom routines
+- tap-to-log status tiles for `pee`, `poop`, `food`, and `water`
+- smaller secondary quick actions for `play`, `sleep`, and `wake`
 
 Latest promotion:
 

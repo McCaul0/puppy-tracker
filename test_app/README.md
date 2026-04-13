@@ -33,13 +33,19 @@ States:
 - Due soon
 - Overdue
 
+Primary interaction:
+
+- Pee, Poop, Food, and Water tiles are the main one-tap logging targets
+- Awake remains read-only because it is derived state
+- Tile copy should still read as status first, action second
+
 ---
 
 ## 1.3 Quick Actions
 
-Pee, Poop, Food, Water, Play, Sleep, Wake
+Play, Sleep, Wake
 
-One-tap logging.
+One-tap logging for activities that do not map safely to a status tile.
 
 ---
 

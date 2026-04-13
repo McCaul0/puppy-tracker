@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-04-13
+
+- Added tap-to-log status tiles for `pee`, `poop`, `food`, and `water` while keeping `awake` read-only.
+- Reduced secondary quick actions to `play`, `sleep`, and `wake` so the dashboard feels simpler.
+- Preserved edit/delete recovery paths for accidental logs and kept unsupported actions on other entry paths.
+- Recovered and merged the routine-editing and tap-to-log work onto the current `master` base before release validation.
+
 ### 2026-04-11
 
 - Replaced the dense schedule threshold card with an `Expected routine` overview that explains `Now`, `Next`, and `Later today`.

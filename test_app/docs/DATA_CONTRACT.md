@@ -241,11 +241,19 @@ These values are not stored directly; they are derived from settings plus recent
 - `since_water_minutes`
 - `sleep_block`
 - `tiles`
+- `secondary_quick_actions`
 - `schedule`
 - `routine_overview`
 - `routine_editor`
 - `routine_proposal`
 - `needs_now`
+
+Tile behavior notes:
+
+- `tiles` include status/urgency display data plus tap-to-log metadata for supported activities.
+- `pee`, `poop`, `food`, and `water` tiles can act as one-tap logging targets.
+- `awake` remains read-only and is marked as derived state.
+- `secondary_quick_actions` is limited to actions that remain supported but do not belong on a status tile.
 
 Important derived rules:
 

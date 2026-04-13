@@ -19,19 +19,18 @@ Run this against `test_app` before promoting code to live.
 
 ### 2. Quick logging
 
-- Log `pee`.
-- Log `pee` with the accident checkbox on.
-- Log `poop`.
-- Log `poop` with the accident checkbox on.
-- Log `food`.
-- Log `water`.
-- Log `play`.
-- Log `sleep`.
-- Log `wake`.
+- Tap the `pee` tile.
+- Tap the `pee` tile with the accident checkbox on.
+- Tap the `poop` tile.
+- Tap the `poop` tile with the accident checkbox on.
+- Tap the `food` tile.
+- Tap the `water` tile.
+- Use quick actions for `play`, `sleep`, and `wake`.
 
 Expected:
 
-- each action is one tap
+- supported tile actions are one tap
+- `awake` is visibly read-only
 - each event appears immediately in recent activity
 - accident-tagged `pee` and `poop` show an obvious accident marker
 - banner and status tiles update immediately
@@ -125,6 +124,8 @@ Expected:
 ### 10. UI and navigation polish
 
 - Confirm the app now presents in dark mode across the main dashboard, settings, and event cards.
+- Confirm the tappable status tiles still read primarily as status and urgency, not as oversized buttons.
+- Confirm the secondary quick-action row only shows `play`, `sleep`, and `wake`.
 - Confirm split date and time inputs fit cleanly within their containers on phone-width and desktop-width layouts.
 - Open older history with the left double-arrow button.
 - Navigate back toward today with the right double-arrow button.
@@ -136,6 +137,7 @@ Expected:
 Do not promote to live if any of these fail:
 
 - quick actions do not save
+- supported status tiles do not save
 - dashboard does not load
 - websocket sync fails
 - sleep logic is inconsistent
