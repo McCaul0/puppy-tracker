@@ -908,7 +908,7 @@ def build_schedule_profile_payload(settings: Dict[str, Any], now: datetime) -> D
     profile = normalize_schedule_profile(settings.get("schedule_profile") or {})
     return {
         "profile_version": 1,
-        "source": schedule["profile_source"],
+        "source": profile["source"] if profile["routine_blocks"] or profile["trigger_rules"] or profile["care_limits"] else "default",
         "active_age_band": {
             "id": schedule["age_band_id"],
             "label": schedule["age_label"],
@@ -1141,7 +1141,10 @@ def resolve_routine_profile(settings: Dict[str, Any], now: datetime) -> Dict[str
     else:
         current_band = recommended_band
         schedule = recommended_schedule
-        effective_values = recommended_values.copy()
+        effective_values = {
+            field_id: (schedule["day_sleep_minutes"] if field_id == "sleep_default" else schedule[field_id])
+            for field_id in ROUTINE_FIELDS
+        }
         profile_source = "default_current_age"
         effective_age_band_id = recommended_band["id"]
         effective_age_label = recommended_band["label"]
@@ -1858,6 +1861,12 @@ def apply_advisory_overrides(candidates: List[Dict[str, Any]], settings: Dict[st
 def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
     resolved_profile = resolve_routine_profile(settings, now)
     schedule = get_schedule(settings, now)
+    schedule_profile = normalize_schedule_profile(settings.get("schedule_profile") or {})
+    schedule_profile_source = (
+        schedule_profile["source"]
+        if schedule_profile["routine_blocks"] or schedule_profile["trigger_rules"] or schedule_profile["care_limits"]
+        else "default"
+    )
     sleep_block = latest_sleep_block(events_desc, settings)
 
     live = {
@@ -1932,7 +1941,7 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         "active_advisories": advisories,
         "logic_breakdown": logic_breakdown,
         "schedule_profile_summary": {
-            "source": schedule["profile_source"],
+            "source": schedule_profile_source,
             "active_age_band_id": schedule["age_band_id"],
             "display_label": schedule["age_label"],
         },
