@@ -88,3 +88,9 @@ def test_awake_tile_switches_to_wake_when_sleep_is_active(client: TestClient) ->
     assert awake_tile["tap_activity"] == "wake"
     assert awake_tile["tap_hint"] == "Tap to log"
     assert awake_tile["show_urgency"] is False
+
+
+def test_settings_html_includes_default_actor_selector(client: TestClient) -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    assert 'id="default-actor"' in response.text

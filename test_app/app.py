@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 APP_TITLE = "Puppy Coordinator"
-APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.4 test")
+APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.4")
 DB_PATH = Path(os.environ.get("PUPPY_TRACKER_DB", "puppy_tracker.db"))
 APP_PORT = int(os.environ.get("PUPPY_TRACKER_PORT", "8000"))
 DEFAULT_TZ_OFFSET_MINUTES = int(os.environ.get("PUPPY_TZ_OFFSET_MINUTES", "-240"))
@@ -2407,6 +2407,11 @@ HTML = r'''
             <label>Household members</label>
             <input id="household-members">
           </div>
+          <div>
+            <label>Default actor</label>
+            <select id="default-actor"></select>
+            <div class="small muted" style="margin-top:4px">Used for one-tap tile logging on this device.</div>
+          </div>
         </div>
         <div style="margin-top:10px">
           <button class="btn btn-blue" type="submit">Save settings</button>
@@ -2457,6 +2462,7 @@ HTML = r'''
     let lastSavedId = null;
     let currentLogDayIndex = 0;
     const pendingActivities = new Set();
+    const DEVICE_ACTOR_KEY = 'puppy_tracker_device_actor';
 
     const els = {
       title: document.getElementById('title'),
@@ -2477,6 +2483,7 @@ HTML = r'''
       householdName: document.getElementById('household-name'),
       puppyBirthDate: document.getElementById('puppy-birth-date'),
       householdMembers: document.getElementById('household-members'),
+      defaultActor: document.getElementById('default-actor'),
       scheduleBlurb: document.getElementById('schedule-blurb'),
       scheduleList: document.getElementById('schedule-list'),
       routineBlurb: document.getElementById('routine-blurb'),
@@ -2493,6 +2500,15 @@ HTML = r'''
       return String(value || '')
         .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+    }
+
+    function getDefaultActor() {
+      return window.localStorage.getItem(DEVICE_ACTOR_KEY) || '';
+    }
+
+    function setDefaultActor(value) {
+      if (value) window.localStorage.setItem(DEVICE_ACTOR_KEY, value);
+      else window.localStorage.removeItem(DEVICE_ACTOR_KEY);
     }
 
     function parseUtc(iso) {
@@ -2777,6 +2793,14 @@ HTML = r'''
       els.householdName.value = state.settings.household_name;
       els.puppyBirthDate.value = state.settings.puppy_birth_date || '';
       els.householdMembers.value = state.settings.household_members.join(', ');
+      const savedActor = getDefaultActor();
+      const fallbackActor = state.settings.household_members[0] || '';
+      const selectedActor = state.settings.household_members.includes(savedActor) ? savedActor : fallbackActor;
+      if (selectedActor !== savedActor) setDefaultActor(selectedActor);
+      els.defaultActor.innerHTML = state.settings.household_members.map(actor => `
+        <option value="${escapeHtml(actor)}" ${actor === selectedActor ? 'selected' : ''}>${escapeHtml(actor)}</option>
+      `).join('');
+      els.defaultActor.value = selectedActor;
     }
 
     function getRoutineFieldIds() {
@@ -3073,7 +3097,7 @@ HTML = r'''
       if (pendingActivities.has(activity)) return;
       pendingActivities.add(activity);
       renderStats();
-      const actor = state.settings.household_members[0] || 'McCaul';
+      const actor = getDefaultActor() || state.settings.household_members[0] || 'McCaul';
       const payload = { activity, actor, event_time_utc: new Date().toISOString() };
       if (activity === 'play') payload.duration_minutes = 20;
       try {
@@ -3186,8 +3210,16 @@ HTML = r'''
       }
       state = data;
       currentLogDayIndex = 0;
+      const currentActor = getDefaultActor();
+      if (!household_members.includes(currentActor) && household_members[0]) {
+        setDefaultActor(household_members[0]);
+      }
       renderAll();
       showToast('Settings saved');
+    });
+    els.defaultActor.addEventListener('change', () => {
+      setDefaultActor(els.defaultActor.value);
+      showToast(`Default actor set to ${els.defaultActor.value}`);
     });
     els.routineAdjustBtn.addEventListener('click', () => toggleRoutineEditor('simple'));
     els.routineAdvancedBtn.addEventListener('click', () => toggleRoutineEditor('advanced'));
