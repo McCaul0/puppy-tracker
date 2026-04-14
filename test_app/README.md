@@ -1,4 +1,4 @@
-# Puppy Coordinator Functional Spec (v14.2 test)
+# Puppy Coordinator Functional Spec (v14.4 test)
 
 ## Core Principle
 
@@ -36,20 +36,12 @@ States:
 Primary interaction:
 
 - Pee, Poop, Food, and Water tiles are the main one-tap logging targets
-- Awake remains read-only because it is derived state
-- Tile copy should still read as status first, action second
+- Awake doubles as the sleep/wake toggle tile: tap it to log `sleep` when awake or `wake` when asleep
+- Tile copy should read state first, then elapsed time, then `Since ...`, with a simple `Tap to log` hint
 
 ---
 
-## 1.3 Quick Actions
-
-Play, Sleep, Wake
-
-One-tap logging for activities that do not map safely to a status tile.
-
----
-
-## 1.4 Sleep System
+## 1.3 Sleep System
 
 - Sleep sets start plus target wake
 - Wake ends sleep
@@ -57,9 +49,9 @@ One-tap logging for activities that do not map safely to a status tile.
 
 ---
 
-## 1.5 Awake State
+## 1.4 Awake State
 
-Time since last sleep ended.
+Shows whether the puppy is currently awake or asleep, when that state started, and lets the user log the opposite state in one tap.
 
 ---
 
@@ -75,19 +67,19 @@ Modify events after the fact without slowing down the default quick-log flow.
 
 ---
 
-## 1.8 Schedule Logic
+## 1.7 Schedule Logic
 
 Shows the expected routine as a friendly day overview, with simple and advanced editing paths.
 
 ---
 
-## 1.9 Settings
+## 1.8 Settings
 
-Basic configuration.
+Basic configuration plus the advanced `Schedule and logic` and `Expected routine` sections behind a compact settings drawer.
 
 ---
 
-## 1.10 Expected Routine Review
+## 1.9 Expected Routine Review
 
 - Default routines should auto-follow the puppy's current age recommendation
 - Custom routines should stay stable until the user accepts a newer recommendation
@@ -95,13 +87,13 @@ Basic configuration.
 
 ---
 
-## 1.11 Version Indicator
+## 1.10 Version Indicator
 
 Displayed near Live status when present.
 
 ---
 
-## 1.12 Elimination Events
+## 1.11 Elimination Events
 
 Accident meaning belongs on pee or poop events, not as a standalone quick action.
 

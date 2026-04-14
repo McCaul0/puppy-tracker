@@ -2,7 +2,7 @@
 
 **Feature Branch**: `002-simplify-routine-editing`  
 **Created**: 2026-04-11  
-**Status**: Ready for Test  
+**Status**: Released on `master`  
 **Input**: User description: "Simplify Expected Routine Editing so first-time users understand the expected routine without feeling overwhelmed or abandoning the tab."
 
 ## User Scenarios & Testing *(mandatory)*
@@ -213,3 +213,5 @@ context.
   customized schedules from scratch.
 - Default-following users should get age-based routine updates automatically, while custom-routine
   users should review and explicitly accept or reject new age-based recommendations.
+- The simplified dashboard keeps one-tap logging on the status tiles, including the awake/asleep
+  toggle on the `Awake` tile, while routine and schedule configuration live under `Settings`.

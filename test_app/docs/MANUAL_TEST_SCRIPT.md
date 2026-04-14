@@ -25,12 +25,13 @@ Run this against `test_app` before promoting code to live.
 - Tap the `poop` tile with the accident checkbox on.
 - Tap the `food` tile.
 - Tap the `water` tile.
-- Use quick actions for `play`, `sleep`, and `wake`.
+- Tap the `awake` tile while the puppy is awake and confirm it logs `sleep`.
+- Tap the `awake` tile while the puppy is asleep and confirm it logs `wake`.
 
 Expected:
 
 - supported tile actions are one tap
-- `awake` is visibly read-only
+- `awake` clearly shows whether the puppy is awake or asleep and what tapping it will log next
 - each event appears immediately in recent activity
 - accident-tagged `pee` and `poop` show an obvious accident marker
 - banner and status tiles update immediately
@@ -79,7 +80,6 @@ Expected:
 
 - title and subtitle update
 - schedule recalculates from birth date
-- device actor defaults remain valid
 - second device sees updated settings
 
 ### 6a. Expected routine overview
@@ -105,7 +105,7 @@ Expected:
 - Save duplicate household members.
 - Confirm duplicates and blanks do not persist.
 - Confirm activities still include the default supported actions.
-- Confirm `accident` is not presented as a quick action.
+- Confirm the dashboard no longer shows a quick-action strip, actor chooser, or accident toggle.
 
 ### 8. Banner sanity checks
 
@@ -125,7 +125,7 @@ Expected:
 
 - Confirm the app now presents in dark mode across the main dashboard, settings, and event cards.
 - Confirm the tappable status tiles still read primarily as status and urgency, not as oversized buttons.
-- Confirm the secondary quick-action row only shows `play`, `sleep`, and `wake`.
+- Confirm advanced controls only appear under the `Settings` drawer.
 - Confirm split date and time inputs fit cleanly within their containers on phone-width and desktop-width layouts.
 - Open older history with the left double-arrow button.
 - Navigate back toward today with the right double-arrow button.
@@ -136,7 +136,6 @@ Expected:
 
 Do not promote to live if any of these fail:
 
-- quick actions do not save
 - supported status tiles do not save
 - dashboard does not load
 - websocket sync fails

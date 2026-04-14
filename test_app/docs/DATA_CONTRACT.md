@@ -252,8 +252,8 @@ Tile behavior notes:
 
 - `tiles` include status/urgency display data plus tap-to-log metadata for supported activities.
 - `pee`, `poop`, `food`, and `water` tiles can act as one-tap logging targets.
-- `awake` remains read-only and is marked as derived state.
-- `secondary_quick_actions` is limited to actions that remain supported but do not belong on a status tile.
+- the `awake` tile now represents the current awake/asleep state and toggles between logging `sleep` and `wake`.
+- `secondary_quick_actions` is currently returned as an empty list because the dashboard no longer shows a quick-action strip.
 
 Important derived rules:
 

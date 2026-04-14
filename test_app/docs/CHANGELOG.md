@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+### 2026-04-14
+
+- Tightened the `Awake` tile copy so it now reads as state first, then elapsed time, then `Since ...`, with a neutral `Tap to log` hint.
+- Promoted the current `v14.4 test` candidate into the live/root app as `v14.4`.
+
 ### 2026-04-13
 
-- Added tap-to-log status tiles for `pee`, `poop`, `food`, and `water` while keeping `awake` read-only.
-- Reduced secondary quick actions to `play`, `sleep`, and `wake` so the dashboard feels simpler.
+- Restored the simplified expected-routine tab onto the current `master` base and mirrored it back into `test_app`.
+- Made the `Awake` tile a sleep/wake toggle: it now logs `sleep` when the puppy is awake and `wake` when the puppy is sleeping.
+- Updated the awake/sleep tile copy to show the current state, the `since` time, elapsed time, urgency, and the next sleep/wake action more clearly.
+- Removed the standalone quick-action strip, actor chooser, and dashboard accident toggle from the main dashboard.
+- Moved both `Schedule and logic` and `Expected routine` under the `Settings` drawer to keep the default dashboard simpler.
 - Preserved edit/delete recovery paths for accidental logs and kept unsupported actions on other entry paths.
 - Recovered and merged the routine-editing and tap-to-log work onto the current `master` base before release validation.
 

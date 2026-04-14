@@ -4,14 +4,15 @@ This folder supports the `test_app` release candidate and the process around pro
 
 Current test focus:
 
-- simplified `Expected routine` overview and editing flow
+- current release candidate label: `v14.4 test`
+- simplified `Expected routine` overview and editing flow inside the settings drawer
 - explicit age-upgrade proposal review for custom routines
-- tap-to-log status tiles for `pee`, `poop`, `food`, and `water`
-- smaller secondary quick actions for `play`, `sleep`, and `wake`
+- tap-to-log status tiles for `pee`, `poop`, `food`, `water`, and sleep/wake from the `Awake` tile
+- no standalone quick-action strip on the dashboard
 
 Latest promotion:
 
-- The current live app was promoted from `test_app` on `2026-03-29`.
+- The current live app was promoted from `test_app` on `2026-04-14`.
 - Any follow-up fixes made directly in live should be synced back here so the candidate and docs stay aligned.
 
 ## Source Of Truth

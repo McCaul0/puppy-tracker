@@ -106,11 +106,11 @@ Why:
 Decision:
 
 - Make `pee`, `poop`, `food`, and `water` status tiles the primary one-tap logging surface.
-- Keep `awake` read-only because it is derived state, not a directly logged event.
-- Leave `play`, `sleep`, and `wake` on a smaller secondary quick-action surface.
+- Let the `awake` tile represent the current awake/asleep state and use it to log `sleep` or `wake`.
+- Remove the separate quick-action strip, actor chooser, and accident toggle from the main dashboard.
 
 Why:
 
 - These four tiles have an obvious, safe event mapping.
-- Derived state should stay explanatory rather than pretending it can be logged directly.
-- Shrinking the separate action strip keeps the dashboard faster to scan instead of adding another busy control surface.
+- The awake/sleep state is important enough to deserve the same direct interaction, as long as the tile copy explains the current state and the next action clearly.
+- Removing duplicate controls keeps the default dashboard simpler and pushes advanced controls into settings or event editing.

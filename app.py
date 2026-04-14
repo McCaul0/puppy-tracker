@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 APP_TITLE = "Puppy Coordinator"
-APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.2")
+APP_VERSION = os.environ.get("PUPPY_TRACKER_VERSION", "v14.4")
 DB_PATH = Path(os.environ.get("PUPPY_TRACKER_DB", "puppy_tracker.db"))
 APP_PORT = int(os.environ.get("PUPPY_TRACKER_PORT", "8000"))
 DEFAULT_TZ_OFFSET_MINUTES = int(os.environ.get("PUPPY_TZ_OFFSET_MINUTES", "-240"))
@@ -1301,6 +1301,15 @@ def current_awake_minutes(events_desc: List[Dict[str, Any]], settings: Dict[str,
     return max(0, int(round((now - most_recent).total_seconds() / 60)))
 
 
+def current_state_anchor_utc(events_desc: List[Dict[str, Any]], sleep_block: Optional[Dict[str, Any]]) -> Optional[str]:
+    if sleep_block:
+        return sleep_block["start_time_utc"] if sleep_block["is_sleeping_now"] else sleep_block["end_time_utc"]
+    for event in events_desc:
+        if event.get("event_time_utc"):
+            return event["event_time_utc"]
+    return None
+
+
 def urgency(value: Optional[int], due: int, overdue: int) -> str:
     if value is None:
         return "unknown"
@@ -1326,19 +1335,29 @@ def build_status_tile(
     urgency_value: str,
     *,
     is_tappable: bool,
+    label_override: Optional[str] = None,
+    display_value_override: Optional[str] = None,
+    detail_text: Optional[str] = None,
+    tap_activity_override: Optional[str] = None,
+    tap_hint_override: Optional[str] = None,
+    show_urgency: bool = True,
     readonly_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    tap_activity = key if is_tappable else None
+    tap_activity = tap_activity_override if is_tappable else None
+    if tap_activity is None and is_tappable:
+        tap_activity = key
     return {
         "key": key,
-        "label": ACTIVITY_LABELS[key],
+        "label": label_override or ACTIVITY_LABELS[key],
         "minutes": minutes,
-        "display_value": human_ago(minutes),
+        "display_value": display_value_override or human_ago(minutes),
+        "detail_text": detail_text,
         "urgency": urgency_value,
         "urgency_label": urgency_label(urgency_value),
+        "show_urgency": show_urgency,
         "is_tappable": is_tappable,
         "tap_activity": tap_activity,
-        "tap_hint": "Tap to log" if is_tappable else None,
+        "tap_hint": tap_hint_override or ("Tap to log" if is_tappable else None),
         "readonly_reason": readonly_reason,
     }
 
@@ -1879,6 +1898,21 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         "since_play_minutes": minutes_since((find_last(events_desc, "play") or {}).get("event_time_utc"), now),
         "sleep_block": sleep_block,
     }
+    awake_anchor_utc = current_state_anchor_utc(events_desc, sleep_block)
+    is_sleeping_now = bool(sleep_block and sleep_block["is_sleeping_now"])
+    awake_tile_minutes = (
+        minutes_since((sleep_block or {}).get("start_time_utc"), now)
+        if is_sleeping_now
+        else live["since_awake_minutes"]
+    )
+    awake_tile_urgency = "ok" if is_sleeping_now else urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"])
+    awake_tile_label = "Asleep" if is_sleeping_now else "Awake"
+    awake_tile_display = human_ago(awake_tile_minutes)
+    awake_tile_detail = (
+        f"Since {local_time_label(awake_anchor_utc, settings['timezone_offset_minutes'])}"
+        if awake_anchor_utc
+        else None
+    )
 
     supported_activities = set(settings["activities"])
     tiles = {
@@ -1908,17 +1942,17 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         ),
         "awake": build_status_tile(
             "awake",
-            live["since_awake_minutes"],
-            urgency(live["since_awake_minutes"], schedule["awake_due"], schedule["awake_overdue"]),
-            is_tappable=False,
-            readonly_reason="Derived state",
+            awake_tile_minutes,
+            awake_tile_urgency,
+            is_tappable=("sleep" in supported_activities and "wake" in supported_activities),
+            label_override=awake_tile_label,
+            display_value_override=awake_tile_display,
+            detail_text=awake_tile_detail,
+            tap_activity_override="wake" if is_sleeping_now else "sleep",
+            tap_hint_override="Tap to log",
+            show_urgency=False,
         ),
     }
-    secondary_quick_actions = [
-        {"activity": activity, "label": ACTIVITY_LABELS[activity]}
-        for activity in SECONDARY_QUICK_ACTION_ORDER
-        if activity in supported_activities
-    ]
 
     advisories = apply_advisory_overrides(build_advisory_candidates(events_desc, settings, schedule, live, now), settings, now)
     advisories.sort(key=lambda item: item["priority"])
@@ -1935,7 +1969,7 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
     return {
         **live,
         "tiles": tiles,
-        "secondary_quick_actions": secondary_quick_actions,
+        "secondary_quick_actions": [],
         "schedule": schedule,
         "primary_advisory": primary_advisory,
         "active_advisories": advisories,
@@ -2266,6 +2300,7 @@ HTML = r'''
     .btn[disabled]{cursor:not-allowed;opacity:.4}
     .btn-icon{width:2.5rem;min-width:2.5rem;height:2.5rem;padding:0;font-size:1rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--card-strong);color:var(--text);border:1px solid var(--border)}
     .toast{position:sticky;top:8px;z-index:5;margin-bottom:10px;display:none;padding:10px 12px;border-radius:12px;background:var(--toast-bg);color:var(--toast-text);border:1px solid var(--toast-border)}
+    .toast.error{background:#40202b;color:#ffc7d1;border-color:#7f3344}
     .toast.show{display:block}
     .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
     .row.wrap{flex-wrap:wrap}
@@ -2308,6 +2343,15 @@ HTML = r'''
     .btn-danger{background:#40202b;color:#ffc7d1}
     .schedule-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
     .schedule-item{padding:10px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border)}
+    .routine-badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:#173253;border:1px solid #40639a;color:#d7e7ff;font-size:.78rem;font-weight:700}
+    .routine-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .routine-panel{margin-top:12px;padding:12px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border)}
+    .routine-diff{display:grid;gap:8px;margin-top:10px}
+    .routine-diff-item{padding:10px;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid var(--border)}
+    .routine-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+    .routine-group{padding:12px;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid var(--border)}
+    .routine-group h4{margin:0 0 6px;font-size:.95rem}
+    .hidden{display:none !important}
     .editor-stack{display:grid;gap:10px;margin-top:10px}
     .editor-card{padding:12px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border);min-width:0}
     .editor-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
@@ -2318,7 +2362,7 @@ HTML = r'''
     @media (max-width:760px){
       .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
       .actions{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .settings-grid,.edit-grid,.schedule-list,.editor-grid{grid-template-columns:1fr}
+      .settings-grid,.edit-grid,.schedule-list,.editor-grid,.routine-fields{grid-template-columns:1fr}
       .datetime-pair{grid-template-columns:1fr}
       .wrap{padding:12px 12px 40px}
     }
@@ -2343,56 +2387,8 @@ HTML = r'''
 
     <div id="quick-stats" class="tiles"></div>
 
-    <div class="card" style="margin-bottom:14px">
-      <div class="row" style="margin-bottom:10px">
-        <div class="section-title">Other quick actions</div>
-        <select id="device-actor" style="max-width:10rem"></select>
-      </div>
-      <div id="quick-actions" class="actions"></div>
-      <div class="checkbox-chip" style="margin-top:10px">
-        <input id="quick-accident" type="checkbox">
-        <label for="quick-accident" style="margin:0;color:var(--text)">Mark the next pee or poop as an accident</label>
-      </div>
-    </div>
-
     <details class="card">
-      <summary>Schedule and logic</summary>
-      <div id="schedule-blurb" class="small muted" style="margin-top:10px"></div>
-      <div id="schedule-list" class="schedule-list"></div>
-      <div class="small muted" style="margin-top:10px">
-        The app shows the active age band, schedule guardrails, recent behavior triggers, and passive sleep guidance.
-        Sleep is logged as a start-only event. Wake or later activity closes the block, and overnight potty limits are emphasized when they matter.
-      </div>
-    </details>
-
-    <details class="card">
-      <summary>Expected routine</summary>
-      <div id="schedule-profile-meta" class="small muted" style="margin-top:10px"></div>
-      <form id="schedule-profile-form">
-        <div class="row" style="margin-top:10px;margin-bottom:10px">
-          <div class="section-title" style="margin:0">Routine blocks</div>
-          <button id="add-routine-block" class="btn btn-small btn-ghost" type="button">Add block</button>
-        </div>
-        <div id="routine-block-list" class="editor-stack"></div>
-        <div class="row" style="margin-top:14px;margin-bottom:10px">
-          <div class="section-title" style="margin:0">Behavior triggers</div>
-        </div>
-        <div id="trigger-rule-list" class="editor-stack"></div>
-        <div class="row" style="margin-top:14px;margin-bottom:10px">
-          <div class="section-title" style="margin:0">Care limits</div>
-        </div>
-        <div id="care-limit-list" class="editor-stack"></div>
-        <div class="small muted" style="margin-top:10px">
-          Routine blocks repeat daily for now. Saving updates the active guidance banner and schedule explanation immediately.
-        </div>
-        <div style="margin-top:10px">
-          <button class="btn btn-blue" type="submit">Save expected routine</button>
-        </div>
-      </form>
-    </details>
-
-    <details class="card">
-      <summary>Settings</summary>
+      <summary>&#9881; Settings</summary>
       <form id="settings-form">
         <div class="settings-grid">
           <div>
@@ -2416,6 +2412,28 @@ HTML = r'''
           <button class="btn btn-blue" type="submit">Save settings</button>
         </div>
       </form>
+      <div class="routine-panel" style="margin-top:14px">
+        <div class="section-title" style="margin:0">Schedule and logic</div>
+        <div id="schedule-blurb" class="small muted" style="margin-top:10px"></div>
+        <div id="schedule-list" class="schedule-list"></div>
+        <div class="small muted" style="margin-top:10px">
+          The app shows the active age band, schedule guardrails, recent behavior triggers, and passive sleep guidance.
+          Sleep is logged as a start-only event. Wake or later activity closes the block, and overnight potty limits are emphasized when they matter.
+        </div>
+      </div>
+      <div class="routine-panel" style="margin-top:14px">
+        <div class="section-title" style="margin:0">Expected routine</div>
+        <div id="routine-blurb" class="small muted" style="margin-top:10px"></div>
+        <div id="routine-list" class="schedule-list"></div>
+        <div id="routine-proposal" class="routine-panel hidden"></div>
+        <div class="routine-actions">
+          <button id="routine-adjust-btn" class="btn btn-blue btn-small" type="button">Adjust routine</button>
+          <button id="routine-advanced-btn" class="btn btn-ghost btn-small" type="button">Advanced editing</button>
+          <button id="routine-reset-btn" class="btn btn-ghost btn-small hidden" type="button">Reset to age defaults</button>
+        </div>
+        <div id="routine-simple-editor" class="routine-panel hidden"></div>
+        <div id="routine-advanced-editor" class="routine-panel hidden"></div>
+      </div>
     </details>
 
     <div class="card" style="margin-top:14px;margin-bottom:14px">
@@ -2435,29 +2453,10 @@ HTML = r'''
 
   <script>
     let state = null;
-    let scheduleProfile = null;
     let ws = null;
     let lastSavedId = null;
     let currentLogDayIndex = 0;
     const pendingActivities = new Set();
-    const DEVICE_ACTOR_KEY = 'puppy_tracker_device_actor';
-    const WEEKDAY_IDS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    const ROUTINE_KIND_OPTIONS = [
-      ['sleep', 'Sleep'],
-      ['feeding', 'Feeding'],
-      ['training', 'Training'],
-      ['play', 'Play'],
-      ['water', 'Water'],
-      ['potty-opportunity', 'Potty opportunity'],
-    ];
-    const RULE_LABELS = {
-      post_food_potty: 'After food potty reminder',
-      post_drink_potty: 'After water potty reminder',
-      post_play_potty: 'After play potty reminder',
-    };
-    const CARE_LIMIT_LABELS = {
-      'potty:overnight': 'Overnight potty limit',
-    };
 
     const els = {
       title: document.getElementById('title'),
@@ -2466,8 +2465,6 @@ HTML = r'''
       wsStatus: document.getElementById('ws-status'),
       toast: document.getElementById('toast'),
       quickStats: document.getElementById('quick-stats'),
-      quickActions: document.getElementById('quick-actions'),
-      quickAccident: document.getElementById('quick-accident'),
       eventList: document.getElementById('event-list'),
       logNewer: document.getElementById('log-newer'),
       logOlder: document.getElementById('log-older'),
@@ -2475,7 +2472,6 @@ HTML = r'''
       appVersion: document.getElementById('app-version'),
       needsTitle: document.getElementById('needs-title'),
       needsReason: document.getElementById('needs-reason'),
-      deviceActor: document.getElementById('device-actor'),
       settingsForm: document.getElementById('settings-form'),
       puppyName: document.getElementById('puppy-name'),
       householdName: document.getElementById('household-name'),
@@ -2483,27 +2479,20 @@ HTML = r'''
       householdMembers: document.getElementById('household-members'),
       scheduleBlurb: document.getElementById('schedule-blurb'),
       scheduleList: document.getElementById('schedule-list'),
-      scheduleProfileForm: document.getElementById('schedule-profile-form'),
-      scheduleProfileMeta: document.getElementById('schedule-profile-meta'),
-      routineBlockList: document.getElementById('routine-block-list'),
-      triggerRuleList: document.getElementById('trigger-rule-list'),
-      careLimitList: document.getElementById('care-limit-list'),
-      addRoutineBlock: document.getElementById('add-routine-block')
+      routineBlurb: document.getElementById('routine-blurb'),
+      routineList: document.getElementById('routine-list'),
+      routineProposal: document.getElementById('routine-proposal'),
+      routineAdjustBtn: document.getElementById('routine-adjust-btn'),
+      routineAdvancedBtn: document.getElementById('routine-advanced-btn'),
+      routineResetBtn: document.getElementById('routine-reset-btn'),
+      routineSimpleEditor: document.getElementById('routine-simple-editor'),
+      routineAdvancedEditor: document.getElementById('routine-advanced-editor')
     };
 
     function escapeHtml(value) {
       return String(value || '')
         .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
-    }
-
-    function getDeviceActor() {
-      return window.localStorage.getItem(DEVICE_ACTOR_KEY) || '';
-    }
-
-    function setDeviceActor(value) {
-      if (value) window.localStorage.setItem(DEVICE_ACTOR_KEY, value);
-      else window.localStorage.removeItem(DEVICE_ACTOR_KEY);
     }
 
     function parseUtc(iso) {
@@ -2622,9 +2611,11 @@ HTML = r'''
     }
 
     function tileAriaLabel(tile, isPending) {
-      const parts = [tile.label, tile.display_value, tile.urgency_label];
+      const parts = [tile.label, tile.display_value];
+      if (tile.detail_text) parts.push(tile.detail_text);
+      parts.push(tile.urgency_label);
       if (isPending) parts.push('Logging now');
-      else if (tile.is_tappable) parts.push(`Tap to log ${tile.label.toLowerCase()}`);
+      else if (tile.tap_hint) parts.push(tile.tap_hint);
       else if (tile.readonly_reason) parts.push(tile.readonly_reason);
       return parts.join('. ');
     }
@@ -2637,10 +2628,12 @@ HTML = r'''
         const extraClass = key === 'awake' ? ' awake-wide' : '';
         const isPending = Boolean(tile?.tap_activity) && pendingActivities.has(tile.tap_activity);
         const hint = isPending ? 'Logging...' : tile?.tap_hint;
+        const showUrgency = tile?.show_urgency !== false;
         const body = `
           <div class="label">${escapeHtml(tile?.label || key)}</div>
           <div class="value">${escapeHtml(tile?.display_value || 'No entries yet')}</div>
-          <div class="meta"><strong>${escapeHtml(tile?.urgency_label || 'On track')}</strong></div>
+          ${tile?.detail_text ? `<div class="meta">${escapeHtml(tile.detail_text)}</div>` : ''}
+          ${showUrgency ? `<div class="meta"><strong>${escapeHtml(tile?.urgency_label || 'On track')}</strong></div>` : ''}
           ${hint ? `<div class="tile-hint">${escapeHtml(hint)}</div>` : ''}
         `;
         if (tile?.is_tappable && tile.tap_activity) {
@@ -2664,13 +2657,6 @@ HTML = r'''
       const statusText = advisory.status && advisory.status !== 'active' ? ` Status: ${advisory.status}.` : '';
       els.needsTitle.textContent = advisory.title;
       els.needsReason.textContent = `${advisory.reason}${driverText}${statusText}`;
-    }
-
-    function renderActions() {
-      const actions = state.live_state.secondary_quick_actions || [];
-      els.quickActions.innerHTML = actions.map(item => `
-        <button class="btn btn-blue" type="button" ${pendingActivities.has(item.activity) ? 'disabled' : ''} onclick="quickLog('${item.activity}', 'quick-action')">${item.label}</button>
-      `).join('');
     }
 
     function describeSleepEvent(event) {
@@ -2791,242 +2777,141 @@ HTML = r'''
       els.householdName.value = state.settings.household_name;
       els.puppyBirthDate.value = state.settings.puppy_birth_date || '';
       els.householdMembers.value = state.settings.household_members.join(', ');
-      const saved = getDeviceActor();
-      els.deviceActor.innerHTML = state.settings.household_members.map(a => `<option value="${escapeHtml(a)}" ${a === saved ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('');
-      if (!saved && state.settings.household_members[0]) {
-        setDeviceActor(state.settings.household_members[0]);
-        els.deviceActor.value = state.settings.household_members[0];
-      }
     }
 
-    function sourceLabel(source) {
-      return source === 'default-age-band' || source === 'default' ? 'Default' : 'Custom';
+    function getRoutineFieldIds() {
+      return (state.live_state.routine_editor?.advanced_fields || []).map(field => field.id);
     }
 
-    function sourceChip(source) {
-      return `<span class="source-chip">${escapeHtml(sourceLabel(source))}</span>`;
+    function renderSimpleRoutineEditor() {
+      const editor = state.live_state.routine_editor;
+      const groups = editor?.simple_fields || [];
+      els.routineSimpleEditor.innerHTML = `
+        <div class="section-title" style="margin:0">Simple routine changes</div>
+        <div class="small muted" style="margin-top:4px">Adjust the most common routine changes without opening every threshold.</div>
+        <div class="routine-fields">
+          ${groups.map(group => `
+            <div class="routine-group">
+              <h4>${escapeHtml(group.label)}</h4>
+              <div class="small muted">${escapeHtml(group.description || '')}</div>
+              <div class="routine-fields">
+                ${group.fields.map(field => `
+                  <div>
+                    <label>${escapeHtml(field.label)}</label>
+                    <input id="routine-simple-${field.id}" type="number" min="1" max="1440" value="${field.effective_value}">
+                    <div class="small muted" style="margin-top:4px">Default ${field.default_value}m</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="routine-actions">
+          <button class="btn btn-blue btn-small" type="button" onclick="saveRoutineProfile('simple')">Save changes</button>
+          <button class="btn btn-ghost btn-small" type="button" onclick="toggleRoutineEditor('simple', false)">Cancel</button>
+        </div>
+      `;
     }
 
-    function bindMinutesHint(inputId, hintId) {
-      const input = document.getElementById(inputId);
-      const hint = document.getElementById(hintId);
-      if (!input || !hint) return;
-      const sync = () => {
-        hint.textContent = editorMinutesHint(input.value);
-      };
-      input.addEventListener('input', sync);
-      input.addEventListener('change', sync);
-      sync();
+    function renderAdvancedRoutineEditor() {
+      const editor = state.live_state.routine_editor;
+      const fields = editor?.advanced_fields || [];
+      els.routineAdvancedEditor.innerHTML = `
+        <div class="section-title" style="margin:0">Advanced routine editing</div>
+        <div class="small muted" style="margin-top:4px">These exact values drive the routine explanation and the advisory timing rules.</div>
+        <div class="routine-fields">
+          ${fields.map(field => `
+            <div>
+              <label>${escapeHtml(field.label)}</label>
+              <input id="routine-advanced-${field.id}" type="number" min="1" max="1440" value="${field.effective_value}">
+              <div class="small muted" style="margin-top:4px">Default ${field.default_value}m</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="routine-actions">
+          <button class="btn btn-blue btn-small" type="button" onclick="saveRoutineProfile('advanced')">Save advanced changes</button>
+          <button class="btn btn-ghost btn-small" type="button" onclick="toggleRoutineEditor('advanced', false)">Cancel</button>
+        </div>
+      `;
     }
 
-    function makeRoutineBlock(kind = 'sleep') {
-      const defaultDuration = kind === 'sleep' ? Number(state?.live_state?.schedule?.day_sleep_minutes || 120) : kind === 'play' ? 25 : 15;
-      const defaultTime = kind === 'sleep' ? '09:00' : kind === 'feeding' ? '07:00' : '12:00';
-      const label = ROUTINE_KIND_OPTIONS.find(([value]) => value === kind)?.[1] || 'Routine block';
-      return {
-        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        kind,
-        label,
-        start_local_time: defaultTime,
-        duration_minutes: defaultDuration,
-        days_of_week: [...WEEKDAY_IDS],
-        enabled: true,
-        source: 'custom',
-      };
+    function collectRoutineValues(prefix) {
+      const editor = state.live_state.routine_editor;
+      const values = { ...(editor.effective_values || {}) };
+      getRoutineFieldIds().forEach(fieldId => {
+        const input = document.getElementById(`routine-${prefix}-${fieldId}`);
+        if (input) values[fieldId] = Number(input.value || values[fieldId] || 0);
+      });
+      return values;
     }
 
-    function renderScheduleEditor() {
-      if (!scheduleProfile) {
-        els.scheduleProfileMeta.textContent = 'Loading expected routine...';
-        els.routineBlockList.innerHTML = '';
-        els.triggerRuleList.innerHTML = '';
-        els.careLimitList.innerHTML = '';
+    function toggleRoutineEditor(kind, force) {
+      const panel = kind === 'advanced' ? els.routineAdvancedEditor : els.routineSimpleEditor;
+      const other = kind === 'advanced' ? els.routineSimpleEditor : els.routineAdvancedEditor;
+      const open = force === undefined ? panel.classList.contains('hidden') : force;
+      panel.classList.toggle('hidden', !open);
+      other.classList.add('hidden');
+    }
+    window.toggleRoutineEditor = toggleRoutineEditor;
+
+    async function saveRoutineProfile(saveMode) {
+      const prefix = saveMode === 'advanced' ? 'advanced' : 'simple';
+      const editor = state.live_state.routine_editor;
+      const res = await fetch('/api/routine-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_age_band_id: editor.active_age_band_id,
+          save_mode: saveMode,
+          custom_values: collectRoutineValues(prefix),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Could not save routine', 'error');
         return;
       }
+      state = data;
+      renderAll();
+      els.routineSimpleEditor.classList.add('hidden');
+      els.routineAdvancedEditor.classList.add('hidden');
+      showToast('Routine updated');
+    }
+    window.saveRoutineProfile = saveRoutineProfile;
 
-      const ageBand = scheduleProfile.active_age_band?.label || 'Unknown age band';
-      els.scheduleProfileMeta.textContent = `Editing the expected routine for ${ageBand}. Default items come from the active age band; anything you change becomes custom guidance.`;
+    async function resetRoutineProfile() {
+      const res = await fetch('/api/routine-profile', { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Could not reset routine', 'error');
+        return;
+      }
+      state = data;
+      renderAll();
+      els.routineSimpleEditor.classList.add('hidden');
+      els.routineAdvancedEditor.classList.add('hidden');
+      showToast('Routine reset to age defaults');
+    }
+    window.resetRoutineProfile = resetRoutineProfile;
 
-      const blocks = scheduleProfile.routine_blocks || [];
-      els.routineBlockList.innerHTML = blocks.map((block, index) => `
-        <div class="editor-card" data-source="${escapeHtml(block.source || 'custom')}">
-          <div class="routine-meta">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <strong>${escapeHtml(block.label || `Routine block ${index + 1}`)}</strong>
-              ${sourceChip(block.source)}
-              <span class="small muted">Daily block</span>
-            </div>
-            <button class="btn btn-small btn-ghost" type="button" onclick="removeRoutineBlock(${index})">Remove</button>
-          </div>
-          <div class="editor-grid">
-            <div>
-              <label>Kind</label>
-              <select id="block-kind-${index}">
-                ${ROUTINE_KIND_OPTIONS.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === block.kind ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label>Label</label>
-              <input id="block-label-${index}" value="${escapeHtml(block.label || '')}">
-            </div>
-            <div>
-              <label>Start</label>
-              <input id="block-start-${index}" type="time" value="${escapeHtml(block.start_local_time || '')}">
-            </div>
-            <div>
-              <label>Duration (minutes)</label>
-              <input id="block-duration-${index}" type="number" min="5" step="5" inputmode="numeric" value="${Number(block.duration_minutes || 0)}">
-              <div id="block-duration-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(block.duration_minutes))}</div>
-            </div>
-            <div class="checkbox-row">
-              <input id="block-enabled-${index}" type="checkbox" ${block.enabled ? 'checked' : ''}>
-              <label for="block-enabled-${index}" style="margin:0;color:var(--text)">Enabled</label>
-            </div>
-          </div>
-        </div>
-      `).join('') || '<div class="small muted">No routine blocks yet. Add one to start shaping the day.</div>';
-
-      const rules = scheduleProfile.trigger_rules || [];
-      els.triggerRuleList.innerHTML = rules.map((rule, index) => `
-        <div class="editor-card" data-source="${escapeHtml(rule.source || 'custom')}">
-          <div class="routine-meta">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <strong>${escapeHtml(RULE_LABELS[rule.rule_key] || rule.rule_key)}</strong>
-              ${sourceChip(rule.source)}
-            </div>
-          </div>
-          <div class="editor-grid">
-            <div>
-              <label>Due after (minutes)</label>
-              <input id="rule-due-${index}" type="number" min="0" step="1" inputmode="numeric" value="${Number(rule.due_minutes ?? 0)}">
-              <div id="rule-due-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(rule.due_minutes))}</div>
-            </div>
-            <div>
-              <label>Overdue after (minutes)</label>
-              <input id="rule-overdue-${index}" type="number" min="0" step="1" inputmode="numeric" value="${Number(rule.overdue_minutes ?? 0)}">
-              <div id="rule-overdue-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(rule.overdue_minutes))}</div>
-            </div>
-            <div style="grid-column:span 2">
-              <label>Why this rule exists</label>
-              <input id="rule-notes-${index}" value="${escapeHtml(rule.notes || '')}">
-            </div>
-            <div class="checkbox-row">
-              <input id="rule-enabled-${index}" type="checkbox" ${rule.enabled ? 'checked' : ''}>
-              <label for="rule-enabled-${index}" style="margin:0;color:var(--text)">Enabled</label>
-            </div>
-          </div>
-        </div>
-      `).join('');
-
-      const limits = scheduleProfile.care_limits || [];
-      els.careLimitList.innerHTML = limits.map((limit, index) => `
-        <div class="editor-card" data-source="${escapeHtml(limit.source || 'custom')}">
-          <div class="routine-meta">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <strong>${escapeHtml(CARE_LIMIT_LABELS[`${limit.need}:${limit.context}`] || `${limit.need} ${limit.context}`)}</strong>
-              ${sourceChip(limit.source)}
-            </div>
-          </div>
-          <div class="editor-grid">
-            <div>
-              <label>Limit (minutes)</label>
-              <input id="limit-minutes-${index}" type="number" min="60" step="5" inputmode="numeric" value="${Number(limit.limit_minutes || 0)}">
-              <div id="limit-minutes-hint-${index}" class="small muted" style="margin-top:4px;min-height:1.1rem">${escapeHtml(editorMinutesHint(limit.limit_minutes))}</div>
-            </div>
-            <div>
-              <label>Emphasis</label>
-              <select id="limit-emphasis-${index}">
-                <option value="normal" ${limit.emphasis === 'normal' ? 'selected' : ''}>Normal</option>
-                <option value="high" ${limit.emphasis === 'high' ? 'selected' : ''}>High</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      `).join('');
-
-      blocks.forEach((_, index) => bindMinutesHint(`block-duration-${index}`, `block-duration-hint-${index}`));
-      rules.forEach((_, index) => {
-        bindMinutesHint(`rule-due-${index}`, `rule-due-hint-${index}`);
-        bindMinutesHint(`rule-overdue-${index}`, `rule-overdue-hint-${index}`);
+    async function decideRoutineProposal(action) {
+      const proposal = state.live_state.routine_proposal;
+      if (!proposal) return;
+      const res = await fetch(`/api/routine-proposal/${proposal.proposal_id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
       });
-      limits.forEach((_, index) => bindMinutesHint(`limit-minutes-${index}`, `limit-minutes-hint-${index}`));
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Could not update proposal', 'error');
+        return;
+      }
+      state = data;
+      renderAll();
+      showToast(action === 'accept' ? 'Applied age-based routine update' : 'Kept the current custom routine');
     }
-
-    function loadRoutineBlocksFromDom() {
-      return (scheduleProfile?.routine_blocks || []).map((block, index) => {
-        const updated = {
-          id: block.id,
-          kind: document.getElementById(`block-kind-${index}`).value,
-          label: document.getElementById(`block-label-${index}`).value.trim(),
-          start_local_time: document.getElementById(`block-start-${index}`).value,
-          duration_minutes: Math.max(5, Number(document.getElementById(`block-duration-${index}`).value || 0)),
-          days_of_week: Array.isArray(block.days_of_week) && block.days_of_week.length ? block.days_of_week : [...WEEKDAY_IDS],
-          enabled: document.getElementById(`block-enabled-${index}`).checked,
-          source: block.source || 'custom',
-        };
-        const changed = updated.kind !== block.kind
-          || updated.label !== block.label
-          || updated.start_local_time !== block.start_local_time
-          || Number(updated.duration_minutes || 0) !== Number(block.duration_minutes || 0)
-          || updated.enabled !== block.enabled;
-        if (changed && sourceLabel(block.source) === 'Default') updated.source = 'custom';
-        return updated;
-      }).filter(block => block.label && block.start_local_time);
-    }
-
-    function loadTriggerRulesFromDom() {
-      return (scheduleProfile?.trigger_rules || []).map((rule, index) => {
-        const updated = {
-          rule_key: rule.rule_key,
-          enabled: document.getElementById(`rule-enabled-${index}`).checked,
-          due_minutes: Number(document.getElementById(`rule-due-${index}`).value || 0),
-          overdue_minutes: Number(document.getElementById(`rule-overdue-${index}`).value || 0),
-          notes: document.getElementById(`rule-notes-${index}`).value.trim(),
-          source: rule.source || 'custom',
-        };
-        const changed = updated.enabled !== rule.enabled
-          || updated.due_minutes !== Number(rule.due_minutes || 0)
-          || updated.overdue_minutes !== Number(rule.overdue_minutes || 0)
-          || updated.notes !== (rule.notes || '');
-        if (changed && sourceLabel(rule.source) === 'Default') updated.source = 'custom';
-        return updated;
-      });
-    }
-
-    function loadCareLimitsFromDom() {
-      return (scheduleProfile?.care_limits || []).map((limit, index) => {
-        const updated = {
-          need: limit.need,
-          context: limit.context,
-          limit_minutes: Math.max(60, Number(document.getElementById(`limit-minutes-${index}`).value || 0)),
-          source: limit.source || 'custom',
-          emphasis: document.getElementById(`limit-emphasis-${index}`).value,
-        };
-        const changed = updated.limit_minutes !== Number(limit.limit_minutes || 0) || updated.emphasis !== limit.emphasis;
-        if (changed && sourceLabel(limit.source) === 'Default') updated.source = 'custom';
-        return updated;
-      });
-    }
-
-    function collectScheduleProfileFromDom() {
-      const routine_blocks = loadRoutineBlocksFromDom();
-      const trigger_rules = loadTriggerRulesFromDom();
-      const care_limits = loadCareLimitsFromDom();
-      const hasCustom = [...routine_blocks, ...trigger_rules, ...care_limits].some(item => sourceLabel(item.source) === 'Custom');
-      return {
-        source: hasCustom ? 'custom' : 'default',
-        routine_blocks,
-        trigger_rules,
-        care_limits,
-      };
-    }
-
-    async function loadScheduleProfile(shouldRender = true) {
-      const res = await fetch('/api/schedule-profile');
-      scheduleProfile = await res.json();
-      if (shouldRender) renderScheduleEditor();
-      return scheduleProfile;
-    }
+    window.decideRoutineProposal = decideRoutineProposal;
 
     function renderSchedule() {
       const live = state.live_state;
@@ -3079,30 +2964,107 @@ HTML = r'''
       `).join('');
     }
 
+    function renderRoutine() {
+      const overview = state.live_state.routine_overview;
+      const proposal = state.live_state.routine_proposal;
+      const schedule = state.live_state.schedule;
+
+      els.routineBlurb.innerHTML = `
+        <div class="routine-badge">${escapeHtml(overview.source_state.source_badge)}</div>
+        <div style="margin-top:10px"><strong>${escapeHtml(overview.summary_text)}</strong></div>
+        <div class="small muted" style="margin-top:6px">${escapeHtml(overview.source_state.source_detail)}</div>
+      `;
+
+      const cards = [];
+      if (overview.current_block) {
+        cards.push(`
+          <div class="schedule-item">
+            <div><strong>Now</strong></div>
+            <div style="margin-top:6px">${escapeHtml(overview.current_block.title)}</div>
+            <div class="small muted" style="margin-top:4px">${escapeHtml(overview.current_block.time_label)}</div>
+            <div class="small muted">${escapeHtml(overview.current_block.explanation)}</div>
+          </div>
+        `);
+      }
+      if (overview.next_block) {
+        cards.push(`
+          <div class="schedule-item">
+            <div><strong>Next</strong></div>
+            <div style="margin-top:6px">${escapeHtml(overview.next_block.title)}</div>
+            <div class="small muted" style="margin-top:4px">${escapeHtml(overview.next_block.time_label)}</div>
+            <div class="small muted">${escapeHtml(overview.next_block.explanation)}</div>
+          </div>
+        `);
+      }
+      (overview.agenda || []).slice(1).forEach(item => {
+        cards.push(`
+          <div class="schedule-item">
+            <div><strong>Later today</strong></div>
+            <div style="margin-top:6px">${escapeHtml(item.title)}</div>
+            <div class="small muted" style="margin-top:4px">${escapeHtml(item.time_label)}</div>
+            <div class="small muted">${escapeHtml(item.explanation)}</div>
+          </div>
+        `);
+      });
+      (overview.plain_language_defaults || []).forEach(text => {
+        cards.push(`
+          <div class="schedule-item">
+            <div><strong>Helpful default</strong></div>
+            <div class="small muted" style="margin-top:6px">${escapeHtml(text)}</div>
+          </div>
+        `);
+      });
+      els.routineList.innerHTML = cards.join('');
+
+      if (proposal) {
+        els.routineProposal.classList.remove('hidden');
+        els.routineProposal.innerHTML = `
+          <div class="section-title" style="margin:0">${escapeHtml(proposal.headline)}</div>
+          <div class="small muted" style="margin-top:4px">${escapeHtml(proposal.summary_text)}</div>
+          <div class="routine-diff">
+            ${proposal.diff_items.map(item => `
+              <div class="routine-diff-item">
+                <div><strong>${escapeHtml(item.label)}</strong></div>
+                <div class="small muted" style="margin-top:4px">Current ${item.current_value}m, recommended ${item.recommended_value}m</div>
+                <div class="small muted">${escapeHtml(item.change_note)}</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="routine-actions">
+            <button class="btn btn-blue btn-small" type="button" onclick="decideRoutineProposal('accept')">Accept recommendation</button>
+            <button class="btn btn-ghost btn-small" type="button" onclick="decideRoutineProposal('reject')">Keep my routine</button>
+          </div>
+        `;
+      } else {
+        els.routineProposal.classList.add('hidden');
+        els.routineProposal.innerHTML = '';
+      }
+
+      renderSimpleRoutineEditor();
+      renderAdvancedRoutineEditor();
+      els.routineResetBtn.classList.toggle('hidden', schedule.routine_mode !== 'custom_manual');
+    }
+
     function renderAll() {
       if (!state) return;
       renderBanner();
       renderStats();
-      renderActions();
       renderEvents();
       renderSettings();
       renderSchedule();
-      renderScheduleEditor();
+      renderRoutine();
     }
 
-    function showToast(text) {
+    function showToast(text, kind = 'success') {
       els.toast.textContent = text;
+      els.toast.classList.toggle('error', kind === 'error');
       els.toast.classList.add('show');
       setTimeout(() => els.toast.classList.remove('show'), 1800);
     }
 
     async function loadState() {
-      const [stateRes, profileRes] = await Promise.all([
-        fetch('/api/state'),
-        fetch('/api/schedule-profile'),
-      ]);
+      const stateRes = await fetch('/api/state');
       state = await stateRes.json();
-      scheduleProfile = await profileRes.json();
       currentLogDayIndex = 0;
       renderAll();
     }
@@ -3111,10 +3073,8 @@ HTML = r'''
       if (pendingActivities.has(activity)) return;
       pendingActivities.add(activity);
       renderStats();
-      renderActions();
-      const actor = getDeviceActor() || state.settings.household_members[0] || 'McCaul';
+      const actor = state.settings.household_members[0] || 'McCaul';
       const payload = { activity, actor, event_time_utc: new Date().toISOString() };
-      if (canMarkAccident(activity)) payload.is_accident = els.quickAccident.checked;
       if (activity === 'play') payload.duration_minutes = 20;
       try {
         const res = await fetch('/api/events', {
@@ -3126,14 +3086,12 @@ HTML = r'''
         pendingActivities.delete(activity);
         if (!res.ok) {
           renderStats();
-          renderActions();
           showToast(data.error || `Could not log ${activity}`);
           return;
         }
         state = data;
         currentLogDayIndex = 0;
         lastSavedId = state.events[0]?.id || null;
-        if (canMarkAccident(activity)) els.quickAccident.checked = false;
         renderAll();
         if (activity === 'sleep') {
           showToast(`Sleep logged. ${state.live_state.sleep_projection.recommended_check_reason}`);
@@ -3146,27 +3104,10 @@ HTML = r'''
         console.error(error);
         pendingActivities.delete(activity);
         renderStats();
-        renderActions();
         showToast(`Could not log ${activity}`);
       }
     }
     window.quickLog = quickLog;
-
-    function addRoutineBlock() {
-      if (!scheduleProfile) return;
-      scheduleProfile.routine_blocks = [...(scheduleProfile.routine_blocks || []), makeRoutineBlock()];
-      scheduleProfile.source = 'custom';
-      renderScheduleEditor();
-    }
-    window.addRoutineBlock = addRoutineBlock;
-
-    function removeRoutineBlock(index) {
-      if (!scheduleProfile) return;
-      scheduleProfile.routine_blocks = (scheduleProfile.routine_blocks || []).filter((_, itemIndex) => itemIndex !== index);
-      scheduleProfile.source = 'custom';
-      renderScheduleEditor();
-    }
-    window.removeRoutineBlock = removeRoutineBlock;
 
     function toggleEdit(id, force) {
       const panel = document.getElementById(`edit-${id}`);
@@ -3244,42 +3185,14 @@ HTML = r'''
         return;
       }
       state = data;
-      await loadScheduleProfile(false);
       currentLogDayIndex = 0;
-      const currentActor = getDeviceActor();
-      if (!household_members.includes(currentActor) && household_members[0]) {
-        setDeviceActor(household_members[0]);
-      }
       renderAll();
       showToast('Settings saved');
     });
+    els.routineAdjustBtn.addEventListener('click', () => toggleRoutineEditor('simple'));
+    els.routineAdvancedBtn.addEventListener('click', () => toggleRoutineEditor('advanced'));
+    els.routineResetBtn.addEventListener('click', resetRoutineProfile);
 
-    els.scheduleProfileForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const payload = collectScheduleProfileFromDom();
-      const res = await fetch('/api/schedule-profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Could not save expected routine');
-        return;
-      }
-      scheduleProfile = data.schedule_profile;
-      state = data.snapshot;
-      currentLogDayIndex = 0;
-      renderAll();
-      showToast('Expected routine updated');
-    });
-
-    els.addRoutineBlock.addEventListener('click', () => addRoutineBlock());
-
-    els.deviceActor.addEventListener('change', () => {
-      setDeviceActor(els.deviceActor.value);
-      showToast(`This device defaults to ${els.deviceActor.value}`);
-    });
     els.logNewer.addEventListener('click', () => {
       currentLogDayIndex = Math.max(0, currentLogDayIndex - 1);
       renderEvents();
@@ -3297,9 +3210,8 @@ HTML = r'''
         els.wsDot.classList.add('online');
         els.wsStatus.textContent = 'Live';
       };
-      ws.onmessage = async (event) => {
+      ws.onmessage = (event) => {
         state = JSON.parse(event.data);
-        await loadScheduleProfile(false);
         renderAll();
       };
       ws.onclose = () => {

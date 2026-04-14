@@ -1,4 +1,4 @@
-# Puppy Coordinator Behavioral Spec (v14)
+# Puppy Coordinator Behavioral Spec (v14.4)
 
 # 1. Core Principles
 
@@ -81,6 +81,8 @@ Provide fast situational awareness across key needs.
 
 - Entire tile color reflects state
 - Awake tile can span wider than the others
+- Awake tile is also the sleep/wake logging tile
+- Awake tile copy should read in this order: state, elapsed time, `Since ...`, optional action hint
 - Tiles update immediately after any event change
 
 ### Constraints
@@ -88,33 +90,7 @@ Provide fast situational awareness across key needs.
 - No duplicate timing concepts
 - No stale values after event changes
 
-## 3.3 Quick Actions
-
-### Purpose
-Fastest possible logging.
-
-### Actions
-
-- Pee
-- Poop
-- Food
-- Water
-- Play
-- Sleep
-- Wake
-
-### Behavior
-
-- One tap logs event at current time
-- No required fields
-- No confirmation step for core actions
-
-### Constraints
-
-- No standalone Accident quick action
-- No required form input on the default path
-
-## 3.4 Sleep System
+## 3.3 Sleep System
 
 ### Purpose
 Track rest and protect against overtired periods and accidents.
@@ -141,7 +117,7 @@ Track rest and protect against overtired periods and accidents.
 
 - Sleep must never remain logically open after a later wake or activity
 
-## 3.5 Awake State
+## 3.4 Awake State
 
 ### Purpose
 Primary driver of recommendations.
@@ -150,12 +126,14 @@ Primary driver of recommendations.
 
 - Awake = time since last sleep ended
 - If no sleep block is available, awake can fall back to time since the most recent valid event
+- The `Awake` tile shows whether the puppy is currently awake or asleep
+- Tapping the `Awake` tile logs `sleep` when awake or `wake` when asleep
 
 ### Constraints
 
 - Never manually entered
 
-## 3.6 Activity Log
+## 3.5 Activity Log
 
 Editable history of events.
 
@@ -165,7 +143,7 @@ Editable history of events.
 - Supports edit and delete
 - Changes recalculate live state immediately
 
-## 3.7 Edit System
+## 3.6 Edit System
 
 User can modify:
 
@@ -180,7 +158,7 @@ User can modify:
 - Edit flow supports correction after quick logging
 - Editing must update derived state immediately
 
-## 3.8 Schedule Logic
+## 3.7 Schedule Logic
 
 Defines thresholds for urgency states and default sleep targets.
 
@@ -194,7 +172,16 @@ Defines thresholds for urgency states and default sleep targets.
 - The active schedule band should be visible to the human
 - The system should eventually expose the expected routine for the puppy's current age in plain language
 - The underlying thresholds should be captured as a versioned schedule profile so they can be adjusted later without changing the event model
+- The advanced schedule and expected routine controls should live inside Settings rather than on the default dashboard surface
 - See [`docs/FUTURE_RELEASE_SCHEDULE_PROFILE.md`](C:\Users\mccau\Codex Projects\puppy_tracker\docs\FUTURE_RELEASE_SCHEDULE_PROFILE.md) for the implementation proposal to carry into a future release
+
+## 3.8 Settings Surface
+
+### Direction
+
+- Keep the default dashboard as simple as possible
+- Put `Schedule and logic` and `Expected routine` inside a compact settings drawer
+- Do not show a standalone quick-action strip, actor chooser, or accident toggle on the dashboard
 
 ## 3.9 Version Indicator
 

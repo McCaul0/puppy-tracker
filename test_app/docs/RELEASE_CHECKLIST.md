@@ -38,10 +38,10 @@ If that assumption changes, update this checklist first.
 - Confirm the dashboard loads without errors.
 - Log `pee` from its status tile.
 - Log `food` from its status tile.
-- Log `sleep`.
+- Use the `awake` tile to log `sleep` or `wake`.
 - Confirm the banner and tiles update immediately.
-- Confirm `awake` still behaves as a derived read-only tile.
-- Confirm the quick-action strip only shows `play`, `sleep`, and `wake`.
+- Confirm the `awake` tile shows the current awake/asleep state and toggles `sleep`/`wake` correctly.
+- Confirm there is no standalone quick-action strip or dashboard actor chooser.
 - Open `Expected routine` and confirm the overview loads.
 - If practical, verify a custom routine does not auto-change across an age-band transition without an explicit proposal decision.
 - Edit the most recent event.
