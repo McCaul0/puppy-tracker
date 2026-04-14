@@ -2007,8 +2007,8 @@ def startup() -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return HTML
+def index() -> HTMLResponse:
+    return HTMLResponse(content=HTML, headers=NO_CACHE_HEADERS)
 
 
 @app.get("/api/state")
