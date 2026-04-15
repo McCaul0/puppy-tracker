@@ -1238,10 +1238,12 @@ def build_sleep_projection(settings: Dict[str, Any], start_dt: datetime, planned
     }
 
 
-def latest_sleep_block(events_desc: List[Dict[str, Any]], settings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def latest_sleep_block(
+    events_desc: List[Dict[str, Any]], settings: Dict[str, Any], now: Optional[datetime] = None
+) -> Optional[Dict[str, Any]]:
     events_asc = list(reversed(events_desc))
     latest_block = None
-    current_now = utc_now()
+    current_now = now or utc_now()
     for index, event in enumerate(events_asc):
         if event["activity"] != "sleep":
             continue
@@ -1252,8 +1254,8 @@ def latest_sleep_block(events_desc: List[Dict[str, Any]], settings: Dict[str, An
         planned = event.get("duration_minutes") or start_schedule["default_sleep_minutes"]
         projection = build_sleep_projection(settings, start_dt, planned)
         projected_end = start_dt + timedelta(minutes=planned)
-        actual_end = projected_end
-        end_source = "projected"
+        actual_end = None
+        end_source = "open"
         for later in events_asc[index + 1:]:
             later_dt = parse_iso(later["event_time_utc"])
             if not later_dt or later_dt <= start_dt:
@@ -1262,17 +1264,18 @@ def latest_sleep_block(events_desc: List[Dict[str, Any]], settings: Dict[str, An
                 actual_end = later_dt
                 end_source = "wake"
                 break
-            if later["activity"] != "sleep" and later_dt < projected_end:
+            if later["activity"] != "sleep":
                 actual_end = later_dt
                 end_source = "activity"
                 break
+        duration_end = actual_end or current_now
         latest_block = {
             "start_time_utc": event["event_time_utc"],
             "planned_duration_minutes": planned,
             "projected_end_time_utc": projected_end.isoformat(),
-            "end_time_utc": actual_end.isoformat(),
-            "actual_duration_minutes": max(0, int(round((actual_end - start_dt).total_seconds() / 60))),
-            "is_sleeping_now": current_now < actual_end,
+            "end_time_utc": actual_end.isoformat() if actual_end else None,
+            "actual_duration_minutes": max(0, int(round((duration_end - start_dt).total_seconds() / 60))),
+            "is_sleeping_now": actual_end is None,
             "end_source": end_source,
             "recommended_check_time_utc": projection["recommended_check_time_utc"],
             "recommended_check_reason": projection["recommended_check_reason"],
@@ -1282,13 +1285,18 @@ def latest_sleep_block(events_desc: List[Dict[str, Any]], settings: Dict[str, An
     return latest_block
 
 
-def current_awake_minutes(events_desc: List[Dict[str, Any]], settings: Dict[str, Any], now: datetime) -> Optional[int]:
-    block = latest_sleep_block(events_desc, settings)
+def current_awake_minutes(
+    events_desc: List[Dict[str, Any]],
+    settings: Dict[str, Any],
+    now: datetime,
+    sleep_block: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    block = sleep_block or latest_sleep_block(events_desc, settings, now)
     if block:
+        if block["is_sleeping_now"]:
+            return 0
         end_dt = parse_iso(block["end_time_utc"])
         if end_dt:
-            if now < end_dt:
-                return 0
             return max(0, int(round((now - end_dt).total_seconds() / 60)))
     most_recent = None
     for event in events_desc:
@@ -1428,8 +1436,8 @@ def build_routine_overview(
             "title": "Nap time",
             "window_start_utc": live["sleep_block"]["start_time_utc"],
             "window_end_utc": live["sleep_block"]["projected_end_time_utc"],
-            "time_label": f"Wake by {local_time_label(live['sleep_block']['projected_end_time_utc'], offset_minutes)}",
-            "explanation": "Sleep starts immediately when logged and ends early if wake or another activity is logged.",
+            "time_label": f"Nap target around {local_time_label(live['sleep_block']['projected_end_time_utc'], offset_minutes)}",
+            "explanation": "This target only guides recommendations. Sleep stays active until wake or another activity is logged.",
             "emphasis": "active",
         }
     else:
@@ -1886,10 +1894,10 @@ def build_live_state(settings: Dict[str, Any], events_desc: List[Dict[str, Any]]
         if schedule_profile["routine_blocks"] or schedule_profile["trigger_rules"] or schedule_profile["care_limits"]
         else "default"
     )
-    sleep_block = latest_sleep_block(events_desc, settings)
+    sleep_block = latest_sleep_block(events_desc, settings, now)
 
     live = {
-        "since_awake_minutes": current_awake_minutes(events_desc, settings, now),
+        "since_awake_minutes": current_awake_minutes(events_desc, settings, now, sleep_block),
         "since_pee_minutes": minutes_since((find_last(events_desc, "pee") or {}).get("event_time_utc"), now),
         "since_poop_minutes": minutes_since((find_last(events_desc, "poop") or {}).get("event_time_utc"), now),
         "since_food_minutes": minutes_since((find_last(events_desc, "food") or {}).get("event_time_utc"), now),
