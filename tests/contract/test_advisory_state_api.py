@@ -3,10 +3,17 @@ from __future__ import annotations
 from datetime import timedelta
 
 
+def assert_no_cache_headers(response) -> None:
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["expires"] == "0"
+
+
 def test_state_payload_exposes_advisory_fields(client):
     response = client.get("/api/state")
 
     assert response.status_code == 200
+    assert_no_cache_headers(response)
     payload = response.json()
     live_state = payload["live_state"]
 
@@ -62,6 +69,7 @@ def test_settings_normalization_removes_nap_from_supported_activities(client):
     )
 
     assert response.status_code == 200
+    assert_no_cache_headers(response)
     activities = response.json()["settings"]["activities"]
 
     assert "nap" not in activities
@@ -86,6 +94,20 @@ def test_index_includes_mobile_safe_datetime_input_styles(client):
     assert (
         'input[type="date"]::-webkit-date-and-time-value,input[type="time"]::-webkit-date-and-time-value,input[type="datetime-local"]::-webkit-date-and-time-value{min-width:0;text-align:left}'
     ) in html
+
+
+def test_index_includes_routine_proposal_modal_and_refresh_hooks(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'id="routine-proposal-modal"' in html
+    assert "Accept schedule changes" in html
+    assert "Keep current schedule" in html
+    assert "window.addEventListener('pageshow'" in html
+    assert "document.addEventListener('visibilitychange'" in html
+    assert "cache: 'no-store'" in html
 
 
 def test_index_includes_humanized_minutes_hints_for_schedule_editor(client):

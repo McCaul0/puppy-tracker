@@ -229,6 +229,10 @@ NO_CACHE_HEADERS = {
 }
 
 
+def api_json_response(content: Any, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(content, status_code=status_code, headers=NO_CACHE_HEADERS)
+
+
 @contextmanager
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -2013,7 +2017,7 @@ def index() -> HTMLResponse:
 
 @app.get("/api/state")
 def api_state() -> JSONResponse:
-    return JSONResponse(dashboard_payload())
+    return api_json_response(dashboard_payload())
 
 
 @app.post("/api/events")
@@ -2021,7 +2025,7 @@ async def api_create_event(event: EventIn) -> JSONResponse:
     settings = get_settings()
     allowed = set(settings["activities"])
     if event.activity not in allowed:
-        return JSONResponse({"error": "Unknown activity"}, status_code=400)
+        return api_json_response({"error": "Unknown activity"}, status_code=400)
     event_time = parse_iso(event.event_time_utc) or utc_now()
     duration = event.duration_minutes
     is_accident = normalize_is_accident(event.activity, event.is_accident)
@@ -2034,22 +2038,22 @@ async def api_create_event(event: EventIn) -> JSONResponse:
         )
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload)
+    return api_json_response(payload)
 
 
 @app.put("/api/events/{event_id}")
 async def api_update_event(event_id: int, event: EventUpdate) -> JSONResponse:
     settings = get_settings()
     if event.activity not in set(settings["activities"]):
-        return JSONResponse({"error": "Unknown activity"}, status_code=400)
+        return api_json_response({"error": "Unknown activity"}, status_code=400)
     event_time = parse_iso(event.event_time_utc)
     if not event_time:
-        return JSONResponse({"error": "Invalid time"}, status_code=400)
+        return api_json_response({"error": "Invalid time"}, status_code=400)
     is_accident = normalize_is_accident(event.activity, event.is_accident)
     with get_db() as conn:
         exists = conn.execute("SELECT id FROM events WHERE id = ?", (event_id,)).fetchone()
         if not exists:
-            return JSONResponse({"error": "Event not found"}, status_code=404)
+            return api_json_response({"error": "Event not found"}, status_code=404)
         conn.execute(
             """
             UPDATE events
@@ -2060,7 +2064,7 @@ async def api_update_event(event_id: int, event: EventUpdate) -> JSONResponse:
         )
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload)
+    return api_json_response(payload)
 
 
 @app.delete("/api/events/{event_id}")
@@ -2069,14 +2073,14 @@ async def api_delete_event(event_id: int) -> JSONResponse:
         conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload)
+    return api_json_response(payload)
 
 
 @app.post("/api/settings")
 async def api_settings(settings: SettingsIn) -> JSONResponse:
     birth = settings.puppy_birth_date or ""
     if birth and not parse_date(birth):
-        return JSONResponse({"error": "Invalid birth date"}, status_code=400)
+        return api_json_response({"error": "Invalid birth date"}, status_code=400)
     activities = normalize_activities(settings.activities)
     household_members = normalize_household_members(settings.household_members)
     values = {
@@ -2092,14 +2096,14 @@ async def api_settings(settings: SettingsIn) -> JSONResponse:
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload)
+    return api_json_response(payload)
 
 
 @app.get("/api/schedule-profile")
 def api_schedule_profile() -> JSONResponse:
     settings = get_settings()
     now = utc_now()
-    return JSONResponse(build_schedule_profile_payload(settings, now))
+    return api_json_response(build_schedule_profile_payload(settings, now))
 
 
 @app.put("/api/schedule-profile")
@@ -2107,13 +2111,13 @@ async def api_update_schedule_profile(profile: ScheduleProfileIn) -> JSONRespons
     normalized = normalize_schedule_profile(profile.model_dump())
     error = validate_schedule_profile(normalized)
     if error:
-        return JSONResponse({"error": error}, status_code=400)
+        return api_json_response({"error": error}, status_code=400)
     save_json_setting(SCHEDULE_PROFILE_KEY, normalized)
     snapshot = dashboard_payload()
     settings = get_settings()
     profile_payload = build_schedule_profile_payload(settings, utc_now())
     await manager.broadcast_json(snapshot)
-    return JSONResponse({"schedule_profile": profile_payload, "snapshot": snapshot})
+    return api_json_response({"schedule_profile": profile_payload, "snapshot": snapshot})
 
 
 @app.post("/api/advisories/action")
@@ -2138,20 +2142,20 @@ async def api_advisory_action(action: AdvisoryActionIn) -> JSONResponse:
     save_json_setting(ADVISORY_OVERRIDES_KEY, overrides)
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload)
+    return api_json_response(payload)
 
 
 @app.put("/api/routine-profile")
 async def api_save_routine_profile(routine_profile: RoutineProfileIn) -> JSONResponse:
     if routine_profile.save_mode not in {"simple", "advanced"}:
-        return JSONResponse({"error": "Invalid save mode"}, status_code=400, headers=NO_CACHE_HEADERS)
+        return api_json_response({"error": "Invalid save mode"}, status_code=400)
     settings = get_settings()
     base_band = get_schedule_band_by_id(routine_profile.base_age_band_id)
     if not base_band:
-        return JSONResponse({"error": "Unknown age band"}, status_code=400, headers=NO_CACHE_HEADERS)
+        return api_json_response({"error": "Unknown age band"}, status_code=400)
     custom_values, error = validate_custom_routine_values(routine_profile.custom_values)
     if error:
-        return JSONResponse({"error": error}, status_code=400, headers=NO_CACHE_HEADERS)
+        return api_json_response({"error": error}, status_code=400)
     resolved_profile = resolve_routine_profile(settings, utc_now())
     routine_profile_state = normalize_routine_profile_state(settings.get("routine_profile_state"))
     routine_profile_state["routine_mode"] = "custom_manual"
@@ -2166,7 +2170,7 @@ async def api_save_routine_profile(routine_profile: RoutineProfileIn) -> JSONRes
     save_routine_profile_state(routine_profile_state)
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
+    return api_json_response(payload)
 
 
 @app.delete("/api/routine-profile")
@@ -2183,18 +2187,18 @@ async def api_reset_routine_profile() -> JSONResponse:
     save_routine_profile_state(routine_profile_state)
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
+    return api_json_response(payload)
 
 
 @app.post("/api/routine-proposal/{proposal_id}/decision")
 async def api_routine_proposal_decision(proposal_id: str, decision: RoutineProposalDecisionIn) -> JSONResponse:
     if decision.action not in {"accept", "reject"}:
-        return JSONResponse({"error": "Invalid proposal action"}, status_code=400, headers=NO_CACHE_HEADERS)
+        return api_json_response({"error": "Invalid proposal action"}, status_code=400)
     settings = get_settings()
     resolved_profile = resolve_routine_profile(settings, utc_now())
     proposal = resolved_profile["routine_proposal"]
     if not proposal or proposal["proposal_id"] != proposal_id:
-        return JSONResponse({"error": "Routine proposal not found"}, status_code=404, headers=NO_CACHE_HEADERS)
+        return api_json_response({"error": "Routine proposal not found"}, status_code=404)
     routine_profile_state = normalize_routine_profile_state(settings.get("routine_profile_state"))
     if decision.action == "accept":
         routine_profile_state = {
@@ -2210,7 +2214,7 @@ async def api_routine_proposal_decision(proposal_id: str, decision: RoutinePropo
     save_routine_profile_state(routine_profile_state)
     payload = dashboard_payload()
     await manager.broadcast_json(payload)
-    return JSONResponse(payload, headers=NO_CACHE_HEADERS)
+    return api_json_response(payload)
 
 
 @app.websocket("/ws")
@@ -2351,6 +2355,9 @@ HTML = r'''
     .routine-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
     .routine-group{padding:12px;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid var(--border)}
     .routine-group h4{margin:0 0 6px;font-size:.95rem}
+    body.modal-open{overflow:hidden}
+    .modal-backdrop{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(7,12,20,.78);z-index:40}
+    .modal-card{width:min(100%,34rem);max-height:calc(100vh - 40px);overflow:auto;padding:18px;border-radius:18px;background:var(--card);border:1px solid var(--border);box-shadow:0 20px 50px rgba(0,0,0,.35)}
     .hidden{display:none !important}
     .editor-stack{display:grid;gap:10px;margin-top:10px}
     .editor-card{padding:12px;border-radius:12px;background:var(--card-strong);border:1px solid var(--border);min-width:0}
@@ -2369,7 +2376,7 @@ HTML = r'''
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <div id="app-shell" class="wrap">
     <div class="header">
       <div>
         <h1 id="title">Puppy Coordinator</h1>
@@ -2430,7 +2437,6 @@ HTML = r'''
         <div class="section-title" style="margin:0">Expected routine</div>
         <div id="routine-blurb" class="small muted" style="margin-top:10px"></div>
         <div id="routine-list" class="schedule-list"></div>
-        <div id="routine-proposal" class="routine-panel hidden"></div>
         <div class="routine-actions">
           <button id="routine-adjust-btn" class="btn btn-blue btn-small" type="button">Adjust routine</button>
           <button id="routine-advanced-btn" class="btn btn-ghost btn-small" type="button">Advanced editing</button>
@@ -2456,15 +2462,31 @@ HTML = r'''
     <div id="app-version" class="footer-version"></div>
   </div>
 
+  <div id="routine-proposal-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="routine-proposal-title" aria-describedby="routine-proposal-summary">
+    <div class="modal-card">
+      <div id="routine-proposal-title" class="section-title" style="margin:0">Schedule update available</div>
+      <div id="routine-proposal-summary" class="small muted" style="margin-top:8px"></div>
+      <div id="routine-proposal-diff" class="routine-diff"></div>
+      <div class="routine-actions">
+        <button id="routine-proposal-accept-btn" class="btn btn-blue" type="button">Accept schedule changes</button>
+        <button id="routine-proposal-reject-btn" class="btn btn-ghost" type="button">Keep current schedule</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let state = null;
     let ws = null;
     let lastSavedId = null;
     let currentLogDayIndex = 0;
+    let refreshStatePromise = null;
+    let wsReconnectTimer = null;
+    let routineProposalDecisionPending = false;
     const pendingActivities = new Set();
     const DEVICE_ACTOR_KEY = 'puppy_tracker_device_actor';
 
     const els = {
+      appShell: document.getElementById('app-shell'),
       title: document.getElementById('title'),
       subtitle: document.getElementById('subtitle'),
       wsDot: document.getElementById('ws-dot'),
@@ -2488,7 +2510,12 @@ HTML = r'''
       scheduleList: document.getElementById('schedule-list'),
       routineBlurb: document.getElementById('routine-blurb'),
       routineList: document.getElementById('routine-list'),
-      routineProposal: document.getElementById('routine-proposal'),
+      routineProposalModal: document.getElementById('routine-proposal-modal'),
+      routineProposalTitle: document.getElementById('routine-proposal-title'),
+      routineProposalSummary: document.getElementById('routine-proposal-summary'),
+      routineProposalDiff: document.getElementById('routine-proposal-diff'),
+      routineProposalAcceptBtn: document.getElementById('routine-proposal-accept-btn'),
+      routineProposalRejectBtn: document.getElementById('routine-proposal-reject-btn'),
       routineAdjustBtn: document.getElementById('routine-adjust-btn'),
       routineAdvancedBtn: document.getElementById('routine-advanced-btn'),
       routineResetBtn: document.getElementById('routine-reset-btn'),
@@ -2538,6 +2565,24 @@ HTML = r'''
       if (!Number.isFinite(value) || value <= 0) return '';
       return humanMinutesShort(value);
     }
+
+    function bindMinutesHint(inputId, hintId) {
+      const input = document.getElementById(inputId);
+      const hint = document.getElementById(hintId);
+      if (!input || !hint) return;
+      const updateHint = () => {
+        hint.textContent = editorMinutesHint(input.value);
+      };
+      input.addEventListener('input', updateHint);
+      updateHint();
+    }
+
+    const scheduleEditorHintTemplateMarkers = [
+      'id="block-duration-hint-${index}"',
+      'id="rule-due-hint-${index}"',
+      'id="rule-overdue-hint-${index}"',
+      'id="limit-minutes-hint-${index}"',
+    ];
 
     function formatWhen(iso) {
       const d = parseUtc(iso);
@@ -2921,6 +2966,8 @@ HTML = r'''
     async function decideRoutineProposal(action) {
       const proposal = state.live_state.routine_proposal;
       if (!proposal) return;
+      routineProposalDecisionPending = true;
+      renderRoutineProposalModal(proposal);
       const res = await fetch(`/api/routine-proposal/${proposal.proposal_id}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2928,9 +2975,12 @@ HTML = r'''
       });
       const data = await res.json();
       if (!res.ok) {
+        routineProposalDecisionPending = false;
+        renderRoutineProposalModal(proposal);
         showToast(data.error || 'Could not update proposal', 'error');
         return;
       }
+      routineProposalDecisionPending = false;
       state = data;
       renderAll();
       showToast(action === 'accept' ? 'Applied age-based routine update' : 'Kept the current custom routine');
@@ -3040,33 +3090,10 @@ HTML = r'''
       });
       els.routineList.innerHTML = cards.join('');
 
-      if (proposal) {
-        els.routineProposal.classList.remove('hidden');
-        els.routineProposal.innerHTML = `
-          <div class="section-title" style="margin:0">${escapeHtml(proposal.headline)}</div>
-          <div class="small muted" style="margin-top:4px">${escapeHtml(proposal.summary_text)}</div>
-          <div class="routine-diff">
-            ${proposal.diff_items.map(item => `
-              <div class="routine-diff-item">
-                <div><strong>${escapeHtml(item.label)}</strong></div>
-                <div class="small muted" style="margin-top:4px">Current ${item.current_value}m, recommended ${item.recommended_value}m</div>
-                <div class="small muted">${escapeHtml(item.change_note)}</div>
-              </div>
-            `).join('')}
-          </div>
-          <div class="routine-actions">
-            <button class="btn btn-blue btn-small" type="button" onclick="decideRoutineProposal('accept')">Accept recommendation</button>
-            <button class="btn btn-ghost btn-small" type="button" onclick="decideRoutineProposal('reject')">Keep my routine</button>
-          </div>
-        `;
-      } else {
-        els.routineProposal.classList.add('hidden');
-        els.routineProposal.innerHTML = '';
-      }
-
       renderSimpleRoutineEditor();
       renderAdvancedRoutineEditor();
       els.routineResetBtn.classList.toggle('hidden', schedule.routine_mode !== 'custom_manual');
+      renderRoutineProposalModal(proposal);
     }
 
     function renderAll() {
@@ -3086,11 +3113,71 @@ HTML = r'''
       setTimeout(() => els.toast.classList.remove('show'), 1800);
     }
 
+    function fetchFresh(url, options = {}) {
+      return fetch(url, {
+        ...options,
+        cache: 'no-store',
+      });
+    }
+
+    function setRoutineProposalModalOpen(isOpen) {
+      els.routineProposalModal.classList.toggle('hidden', !isOpen);
+      document.body.classList.toggle('modal-open', isOpen);
+      els.appShell.inert = isOpen;
+      els.appShell.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+    }
+
+    function renderRoutineProposalModal(proposal) {
+      if (!proposal) {
+        routineProposalDecisionPending = false;
+        els.routineProposalSummary.textContent = '';
+        els.routineProposalDiff.innerHTML = '';
+        els.routineProposalAcceptBtn.disabled = false;
+        els.routineProposalRejectBtn.disabled = false;
+        setRoutineProposalModalOpen(false);
+        return;
+      }
+      els.routineProposalTitle.textContent = proposal.headline || 'Schedule update available';
+      els.routineProposalSummary.textContent = proposal.summary_text || '';
+      els.routineProposalDiff.innerHTML = (proposal.diff_items || []).map(item => `
+        <div class="routine-diff-item">
+          <div><strong>${escapeHtml(item.label)}</strong></div>
+          <div class="small muted" style="margin-top:4px">Current ${item.current_value}m, recommended ${item.recommended_value}m</div>
+          <div class="small muted">${escapeHtml(item.change_note)}</div>
+        </div>
+      `).join('');
+      els.routineProposalAcceptBtn.disabled = routineProposalDecisionPending;
+      els.routineProposalRejectBtn.disabled = routineProposalDecisionPending;
+      setRoutineProposalModalOpen(true);
+    }
+
     async function loadState() {
-      const stateRes = await fetch('/api/state');
-      state = await stateRes.json();
-      currentLogDayIndex = 0;
-      renderAll();
+      return refreshState({ resetLogDay: true });
+    }
+
+    async function refreshState({ resetLogDay = false } = {}) {
+      if (refreshStatePromise) {
+        return refreshStatePromise;
+      }
+      refreshStatePromise = (async () => {
+        const stateRes = await fetchFresh('/api/state');
+        if (!stateRes.ok) {
+          throw new Error(`State refresh failed with status ${stateRes.status}`);
+        }
+        state = await stateRes.json();
+        if (resetLogDay) {
+          currentLogDayIndex = 0;
+        }
+        renderAll();
+      })();
+      try {
+        await refreshStatePromise;
+      } catch (error) {
+        console.error(error);
+        showToast('Could not refresh dashboard', 'error');
+      } finally {
+        refreshStatePromise = null;
+      }
     }
 
     async function quickLog(activity, source = 'quick-action') {
@@ -3221,6 +3308,8 @@ HTML = r'''
       setDefaultActor(els.defaultActor.value);
       showToast(`Default actor set to ${els.defaultActor.value}`);
     });
+    els.routineProposalAcceptBtn.addEventListener('click', () => decideRoutineProposal('accept'));
+    els.routineProposalRejectBtn.addEventListener('click', () => decideRoutineProposal('reject'));
     els.routineAdjustBtn.addEventListener('click', () => toggleRoutineEditor('simple'));
     els.routineAdvancedBtn.addEventListener('click', () => toggleRoutineEditor('advanced'));
     els.routineResetBtn.addEventListener('click', resetRoutineProfile);
@@ -3236,22 +3325,50 @@ HTML = r'''
     });
 
     function connectWs() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+      }
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${window.location.host}/ws`);
-      ws.onopen = () => {
+      const socket = new WebSocket(`${proto}://${window.location.host}/ws`);
+      ws = socket;
+      socket.onopen = () => {
         els.wsDot.classList.add('online');
         els.wsStatus.textContent = 'Live';
       };
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
         state = JSON.parse(event.data);
         renderAll();
       };
-      ws.onclose = () => {
+      socket.onclose = () => {
+        if (ws === socket) {
+          ws = null;
+        }
         els.wsDot.classList.remove('online');
         els.wsStatus.textContent = 'Reconnecting';
-        setTimeout(connectWs, 1500);
+        if (!wsReconnectTimer) {
+          wsReconnectTimer = setTimeout(() => {
+            wsReconnectTimer = null;
+            connectWs();
+          }, 1500);
+        }
       };
     }
+
+    window.addEventListener('pageshow', (event) => {
+      if (!event.persisted && !state) return;
+      refreshState();
+      connectWs();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      refreshState();
+      connectWs();
+    });
 
     setInterval(() => {
       if (state) {
